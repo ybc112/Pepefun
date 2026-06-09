@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import pepeArenaArt from './assets/pepe-arena.svg';
 
-const STORAGE_KEY = 'pepe-launch-arena-draft-v4';
+const STORAGE_KEY = 'pepe-launch-arena-draft-v5';
 const LAUNCH_FEE_BNB = '0.01';
 const PAYMENT_RECEIVER = import.meta.env.VITE_PAYMENT_RECEIVER || '';
 const FACTORY_CONTRACT = import.meta.env.VITE_FACTORY_CONTRACT || '';
@@ -302,7 +302,7 @@ function loadDraft() {
   if (typeof window === 'undefined') return defaultForm;
   try {
     const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || 'null');
-    if (saved?.version === 4) return { ...defaultForm, ...saved.form };
+    if (saved?.version === 5) return { ...defaultForm, ...saved.form, mode: 'mint', templateId: saved.form?.templateId || defaultForm.templateId };
   } catch {
     window.localStorage.removeItem(STORAGE_KEY);
   }
@@ -587,7 +587,7 @@ function launchStepIndex(step) {
 
 function App() {
   const [activePage, setActivePage] = useState(pageFromHash);
-  const [launchStep, setLaunchStep] = useState('mode');
+  const [launchStep, setLaunchStep] = useState('preview');
   const [form, setForm] = useState(loadDraft);
   const [wallet, setWallet] = useState({ address: '', chainId: '', providerName: '' });
   const [checkout, setCheckout] = useState(null);
@@ -617,7 +617,7 @@ function App() {
   }, [form.initialLiquidity, form.mode]);
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 4, form }));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 5, form }));
   }, [form]);
 
   useEffect(() => {
