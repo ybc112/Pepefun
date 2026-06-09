@@ -1170,6 +1170,86 @@ legend {
   gap: 4px;
 }
 
+.whitelist-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.whitelist-editor textarea {
+  min-height: 150px;
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+  font-size: 13px;
+}
+
+.whitelist-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid rgba(218, 255, 138, 0.14);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.045);
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.status-pill.green {
+  color: #d6ffd9;
+  border-color: rgba(114, 240, 141, 0.42);
+}
+
+.status-pill.cyan {
+  color: #c7f6ff;
+  border-color: rgba(141, 233, 255, 0.38);
+}
+
+.status-pill.red {
+  color: #ffd0ca;
+  border-color: rgba(255, 121, 107, 0.48);
+}
+
+.invalid-list,
+.whitelist-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 121, 107, 0.28);
+  border-radius: var(--radius);
+  color: #ffd0ca;
+  background: rgba(255, 121, 107, 0.08);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.invalid-list span {
+  overflow-wrap: anywhere;
+}
+
+.whitelist-summary {
+  align-items: center;
+  border-color: rgba(215, 255, 86, 0.28);
+  color: #effbe6;
+  background: rgba(215, 255, 86, 0.08);
+  font-weight: 900;
+}
+
+.whitelist-summary svg {
+  flex: 0 0 auto;
+  color: var(--lime);
+}
+
 .launch-summary {
   position: sticky;
   top: 86px;
@@ -1792,6 +1872,17 @@ legend {
 
   .launch-confirm h3 {
     font-size: 23px;
+  }
+
+  .whitelist-tools {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .whitelist-tools .secondary,
+  .whitelist-tools .status-pill {
+    width: 100%;
+    justify-content: center;
   }
 
   .step-actions {

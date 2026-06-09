@@ -197,10 +197,44 @@ const defaultForm = {
   deadLiquidity: true,
   renounceOwner: true,
   whitelist: false,
+  whitelistAddresses: '',
   autoVerify: true,
   logoData: '',
   note: '',
 };
+
+function parseWhitelist(value) {
+  const rawItems = String(value || '')
+    .split(/[\s,;，；]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const seen = new Set();
+  const valid = [];
+  const invalid = [];
+
+  rawItems.forEach((item) => {
+    if (!isAddress(item)) {
+      if (!invalid.includes(item)) invalid.push(item);
+      return;
+    }
+    const normalized = item.toLowerCase();
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      valid.push(item);
+    }
+  });
+
+  return { valid, invalid, rawCount: rawItems.length };
+}
+
+function appendWhitelistAddress(current, address) {
+  if (!isAddress(address)) return current || '';
+  const parsed = parseWhitelist(current);
+  if (parsed.valid.some((item) => item.toLowerCase() === address.toLowerCase())) {
+    return current || '';
+  }
+  return [current, address].filter(Boolean).join('\n');
+}
 
 function loadDraft() {
   if (typeof window === 'undefined') return defaultForm;
@@ -478,6 +512,9 @@ function App() {
     if (form.owner.trim() && !isAddress(form.owner)) return '项目归属钱包地址格式不正确';
     if (numberValue(form.buyTax) < 0 || numberValue(form.sellTax) < 0) return '税率不能小于 0';
     if (form.mode === 'direct' && numberValue(form.initialLiquidity) < 0) return '初始流动性不能小于 0';
+    const whitelistInfo = parseWhitelist(form.whitelistAddresses);
+    if (form.whitelist && whitelistInfo.valid.length === 0) return '已开启白名单，请至少添加 1 个有效钱包地址';
+    if (form.whitelist && whitelistInfo.invalid.length > 0) return '白名单里有格式错误的钱包地址，请先修正';
     if (form.mode === 'mint') {
       if (numberValue(form.mintPrice) <= 0) return 'Mint 单价必须大于 0';
       if (numberValue(form.tokensPerMint) <= 0) return '每份 Mint 获得代币必须大于 0';
@@ -495,6 +532,7 @@ function App() {
       return;
     }
     const amountBnb = formatBnb(launchAmount);
+    const whitelistInfo = parseWhitelist(form.whitelistAddresses);
     setCheckout({
       type: 'launch',
       title: `登上擂台：${form.tokenName} (${form.symbol})`,
@@ -505,6 +543,7 @@ function App() {
         ['代币总量', formatNumber(form.totalSupply, 0)],
         ['底池规则', form.deadLiquidity ? `LP 转 ${shortAddress(DEAD_ADDRESS)}` : '手动确认底池规则'],
         ['Owner', form.renounceOwner ? '部署后抛弃' : '保留项目方管理'],
+        ['白名单', form.whitelist ? `${whitelistInfo.valid.length} 个地址` : '未开启'],
       ],
     });
   }
@@ -898,6 +937,7 @@ function LaunchWorkbench({
   const currentStepIndex = launchStepIndex(launchStep);
   const previousStep = launchWizardSteps[currentStepIndex - 1];
   const nextStep = launchWizardSteps[currentStepIndex + 1];
+  const whitelistInfo = parseWhitelist(form.whitelistAddresses);
 
   return (
     <section className="section-panel launch-panel" id="launch">
@@ -1039,9 +1079,45 @@ function LaunchWorkbench({
               <ToggleField
                 checked={form.whitelist}
                 label="开启白名单窗口"
-                text="可用于早期社区名单，公开开盘前自动结束。"
+                text="开启后只有名单内钱包可在白名单窗口 Mint 或提前参与。"
                 onChange={(value) => update('whitelist', value)}
               />
+              {form.whitelist && (
+                <FormField label="白名单钱包地址" wide>
+                  <div className="whitelist-editor">
+                    <textarea
+                      value={form.whitelistAddresses}
+                      onChange={(event) => update('whitelistAddresses', event.target.value)}
+                      placeholder={'每行一个地址，也支持逗号/空格分隔\n0x...\n0x...'}
+                    />
+                    <div className="whitelist-tools">
+                      <span className="status-pill green">{whitelistInfo.valid.length} 个有效地址</span>
+                      <span className={`status-pill ${whitelistInfo.invalid.length ? 'red' : 'cyan'}`}>
+                        {whitelistInfo.invalid.length ? `${whitelistInfo.invalid.length} 个错误` : '格式正常'}
+                      </span>
+                      {wallet.address && (
+                        <button
+                          className="secondary"
+                          onClick={() => update('whitelistAddresses', appendWhitelistAddress(form.whitelistAddresses, wallet.address))}
+                          type="button"
+                        >
+                          <Wallet size={15} />
+                          加入当前钱包
+                        </button>
+                      )}
+                      <button className="secondary" onClick={() => update('whitelistAddresses', '')} type="button">
+                        清空名单
+                      </button>
+                    </div>
+                    {whitelistInfo.invalid.length > 0 && (
+                      <div className="invalid-list">
+                        <b>格式错误：</b>
+                        <span>{whitelistInfo.invalid.slice(0, 6).join('、')}</span>
+                      </div>
+                    )}
+                  </div>
+                </FormField>
+              )}
               <ToggleField
                 checked={form.autoVerify}
                 label="自动验证代码"
@@ -1070,6 +1146,13 @@ function LaunchWorkbench({
                 <Rocket size={26} />
                 <h3>{form.tokenName || 'Pepe Fighter'} 准备登上擂台</h3>
                 <p>请确认右侧预览、支付金额、黑洞底池和 Owner 规则。点击登上擂台后会拉起真实钱包。</p>
+                {form.whitelist && (
+                  <div className="whitelist-summary">
+                    <LockKeyhole size={17} />
+                    白名单已开启：{whitelistInfo.valid.length} 个有效地址
+                    {whitelistInfo.invalid.length > 0 && `，${whitelistInfo.invalid.length} 个地址需修正`}
+                  </div>
+                )}
                 <div className="benefit-grid compact">
                   {benefits.slice(0, 4).map((item) => (
                     <span key={item}>
@@ -1116,6 +1199,7 @@ function LaunchWorkbench({
               <MiniMetric label="黑洞地址" value={shortAddress(DEAD_ADDRESS)} />
               <MiniMetric label="买/卖税" value={`${form.buyTax}% / ${form.sellTax}%`} />
               <MiniMetric label="Owner" value={form.renounceOwner ? '部署后抛弃' : '项目方保留'} />
+              <MiniMetric label="白名单" value={form.whitelist ? `${whitelistInfo.valid.length} 个地址` : '未开启'} />
             </div>
             <button className="secondary full" onClick={() => copyText(DEAD_ADDRESS, '黑洞地址')} type="button">
               <Copy size={16} />
