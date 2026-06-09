@@ -226,6 +226,12 @@ textarea:disabled {
   background: rgba(215, 255, 86, 0.08);
 }
 
+.nav button.active {
+  color: var(--ink);
+  background: linear-gradient(135deg, #efffc2, var(--lime) 62%, var(--green));
+  box-shadow: 0 10px 26px rgba(215, 255, 86, 0.14);
+}
+
 .wallet-btn {
   min-height: 40px;
   justify-self: end;
@@ -262,6 +268,67 @@ textarea:disabled {
 .shell {
   width: min(1420px, calc(100% - 36px));
   margin: 24px auto 64px;
+}
+
+.page-shell {
+  display: grid;
+  gap: 14px;
+}
+
+.page-stage {
+  min-height: calc(100vh - 170px);
+  animation: pageIn 0.26s ease-out;
+}
+
+.page-stage > .section-panel,
+.page-stage > .manifesto-panel {
+  margin-top: 0;
+}
+
+.page-pager {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(218, 255, 138, 0.14);
+  border-radius: var(--radius);
+  background: rgba(7, 12, 6, 0.78);
+  backdrop-filter: blur(14px);
+}
+
+.page-pager > span {
+  display: inline-grid;
+  min-width: 120px;
+  justify-items: center;
+  gap: 2px;
+}
+
+.page-pager b {
+  color: var(--lime);
+  font-size: 13px;
+}
+
+.page-pager em {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.page-pager .primary {
+  justify-self: end;
+}
+
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .hero-panel {
@@ -841,6 +908,53 @@ textarea:focus {
   gap: 14px;
 }
 
+.paged-form {
+  align-content: start;
+}
+
+.launch-stepper {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--surface-strong), rgba(8, 13, 6, 0.92));
+  box-shadow: 0 16px 46px rgba(0, 0, 0, 0.25);
+}
+
+.launch-stepper button {
+  display: grid;
+  gap: 4px;
+  min-height: 58px;
+  align-content: center;
+  border: 1px solid rgba(218, 255, 138, 0.12);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+
+.launch-stepper button.active {
+  color: var(--ink);
+  border-color: transparent;
+  background: linear-gradient(135deg, #efffc2, var(--lime) 62%, var(--green));
+}
+
+.launch-stepper span {
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.launch-stepper button.active span {
+  color: rgba(8, 16, 6, 0.72);
+}
+
+.launch-stepper b {
+  font-size: 14px;
+}
+
 fieldset {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -848,6 +962,49 @@ fieldset {
   min-width: 0;
   margin: 0;
   padding: 18px;
+}
+
+.wizard-fieldset {
+  min-height: 332px;
+  animation: pageIn 0.22s ease-out;
+}
+
+.preview-fieldset {
+  grid-template-columns: 1fr;
+}
+
+.launch-confirm {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  min-height: 278px;
+  padding: 12px;
+}
+
+.launch-confirm svg {
+  color: var(--lime);
+}
+
+.launch-confirm h3 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.launch-confirm p {
+  max-width: 680px;
+  margin: 0;
+  color: #d5e5cc;
+  line-height: 1.7;
+}
+
+.step-actions {
+  display: grid;
+  grid-template-columns: minmax(150px, auto) minmax(200px, 1fr);
+  gap: 10px;
+}
+
+.step-actions .primary {
+  justify-self: end;
 }
 
 legend {
@@ -1147,6 +1304,16 @@ legend {
 .benefit-grid svg {
   flex: 0 0 auto;
   color: var(--green);
+}
+
+.benefit-grid.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 4px;
+}
+
+.benefit-grid.compact span {
+  min-height: 42px;
+  font-size: 13px;
 }
 
 .manifesto-panel {
@@ -1508,11 +1675,18 @@ legend {
   }
 
   .nav {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .nav::-webkit-scrollbar {
+    display: none;
   }
 
   .nav button {
+    flex: 0 0 auto;
     min-height: 36px;
     padding: 7px 8px;
     font-size: 13px;
@@ -1521,6 +1695,19 @@ legend {
   .shell {
     width: min(100% - 18px, 1420px);
     margin-top: 14px;
+  }
+
+  .page-stage {
+    min-height: auto;
+  }
+
+  .page-pager {
+    grid-template-columns: 1fr;
+  }
+
+  .page-pager .primary,
+  .page-pager .secondary {
+    justify-self: stretch;
   }
 
   .hero-panel {
@@ -1543,6 +1730,7 @@ legend {
   .mode-grid,
   .flow-grid,
   .benefit-grid,
+  .benefit-grid.compact,
   fieldset,
   .mode-cards,
   .template-picker,
@@ -1574,6 +1762,44 @@ legend {
 
   .toggle-field {
     grid-column: auto;
+  }
+
+  .launch-summary.desktop-summary {
+    display: none;
+  }
+
+  .launch-stepper {
+    grid-template-columns: repeat(5, minmax(82px, 1fr));
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .launch-stepper::-webkit-scrollbar {
+    display: none;
+  }
+
+  .launch-stepper button {
+    min-height: 52px;
+  }
+
+  .wizard-fieldset {
+    min-height: auto;
+  }
+
+  .launch-confirm {
+    min-height: 220px;
+  }
+
+  .launch-confirm h3 {
+    font-size: 23px;
+  }
+
+  .step-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .step-actions .primary {
+    justify-self: stretch;
   }
 
   .result-actions {

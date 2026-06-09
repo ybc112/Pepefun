@@ -41,6 +41,7 @@ const BSC_CHAIN = {
 
 const navItems = [
   { id: 'arena', label: '首页', icon: LayoutDashboard },
+  { id: 'rules', label: '公平规则', icon: ShieldCheck },
   { id: 'templates', label: '模板协议', icon: FileCheck2 },
   { id: 'modes', label: '发射姿势', icon: Rocket },
   { id: 'launch', label: '登上擂台', icon: Upload },
@@ -160,6 +161,14 @@ const flowSteps = [
   ['02', '选择模式', '直接发币或自由 Mint，选择合约模板和税控参数。', SlidersHorizontal],
   ['03', '上传Logo', '上传 Pepe 风格 Logo，预览代币名、符号和擂台视觉。', Upload],
   ['04', '登上擂台', '确认支付并拉起钱包，等待链上交易回执。', Rocket],
+];
+
+const launchWizardSteps = [
+  { id: 'mode', label: '模式', title: '发射模式' },
+  { id: 'basic', label: '基础', title: '基础信息' },
+  { id: 'params', label: '参数', title: '发射参数' },
+  { id: 'rules', label: '规则', title: '税率与权限' },
+  { id: 'preview', label: '预览', title: '确认发射' },
 ];
 
 const defaultForm = {
@@ -282,11 +291,23 @@ function cleanSymbol(value) {
     .slice(0, 12);
 }
 
-function scrollToSection(id) {
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+function pageFromHash() {
+  if (typeof window === 'undefined') return 'arena';
+  const id = window.location.hash.replace('#', '');
+  return navItems.some((item) => item.id === id) ? id : 'arena';
+}
+
+function pageIndex(page) {
+  return Math.max(0, navItems.findIndex((item) => item.id === page));
+}
+
+function launchStepIndex(step) {
+  return Math.max(0, launchWizardSteps.findIndex((item) => item.id === step));
 }
 
 function App() {
+  const [activePage, setActivePage] = useState(pageFromHash);
+  const [launchStep, setLaunchStep] = useState('mode');
   const [form, setForm] = useState(loadDraft);
   const [wallet, setWallet] = useState({ address: '', chainId: '', providerName: '' });
   const [checkout, setCheckout] = useState(null);
@@ -316,6 +337,22 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 4, form }));
   }, [form]);
+
+  useEffect(() => {
+    const nextHash = `#${activePage}`;
+    if (window.location.hash !== nextHash) {
+      window.history.replaceState(null, '', nextHash);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [activePage]);
+
+  useEffect(() => {
+    function syncPageFromHash() {
+      setActivePage(pageFromHash());
+    }
+    window.addEventListener('hashchange', syncPageFromHash);
+    return () => window.removeEventListener('hashchange', syncPageFromHash);
+  }, []);
 
   useEffect(() => {
     const provider = getProvider();
@@ -355,6 +392,11 @@ function App() {
 
   function notify(message) {
     setToast(message);
+  }
+
+  function navigateToPage(page) {
+    if (!navItems.some((item) => item.id === page)) return;
+    setActivePage(page);
   }
 
   async function ensureWallet() {
@@ -484,7 +526,8 @@ function App() {
       setLastResult(result);
       setCheckout(null);
       notify('真实钱包交易已发出，等待链上确认。');
-      scrollToSection('launch');
+      setActivePage('launch');
+      setLaunchStep('preview');
     } catch (error) {
       notify(error.message || '交易未完成');
     } finally {
@@ -504,36 +547,46 @@ function App() {
   return (
     <div className="app">
       <div className="bg-layer" />
-      <Topbar wallet={wallet} connectWallet={connectWallet} />
-      <main className="shell">
-        <Hero
-          form={form}
-          wallet={wallet}
-          selectedMode={selectedMode}
-          selectedTemplate={selectedTemplate}
-          update={update}
-          connectWallet={connectWallet}
-        />
-        <MetricStrip />
-        <PrincipleSection />
-        <TemplateSection selectedTemplate={selectedTemplate} selectTemplate={(id) => update('templateId', id)} />
-        <ModeSection />
-        <LaunchWorkbench
-          form={form}
-          wallet={wallet}
-          selectedMode={selectedMode}
-          selectedTemplate={selectedTemplate}
-          launchAmount={launchAmount}
-          mintRaise={mintRaise}
-          update={update}
-          submitLaunch={submitLaunch}
-          connectWallet={connectWallet}
-          handleLogoUpload={handleLogoUpload}
-          copyText={copyText}
-          lastResult={lastResult}
-        />
-        <FlowSection />
-        <ManifestoSection />
+      <Topbar wallet={wallet} activePage={activePage} navigate={navigateToPage} connectWallet={connectWallet} />
+      <main className="shell page-shell">
+        <div className="page-stage">
+          {activePage === 'arena' && (
+            <HomePage
+              form={form}
+              wallet={wallet}
+              selectedMode={selectedMode}
+              selectedTemplate={selectedTemplate}
+              update={update}
+              navigate={navigateToPage}
+              connectWallet={connectWallet}
+            />
+          )}
+          {activePage === 'rules' && <RulesPage />}
+          {activePage === 'templates' && (
+            <TemplateSection selectedTemplate={selectedTemplate} selectTemplate={(id) => update('templateId', id)} />
+          )}
+          {activePage === 'modes' && <ModeSection />}
+          {activePage === 'launch' && (
+            <LaunchWorkbench
+              form={form}
+              wallet={wallet}
+              selectedMode={selectedMode}
+              selectedTemplate={selectedTemplate}
+              launchAmount={launchAmount}
+              mintRaise={mintRaise}
+              update={update}
+              submitLaunch={submitLaunch}
+              connectWallet={connectWallet}
+              handleLogoUpload={handleLogoUpload}
+              copyText={copyText}
+              lastResult={lastResult}
+              launchStep={launchStep}
+              setLaunchStep={setLaunchStep}
+            />
+          )}
+          {activePage === 'manifesto' && <ManifestoSection />}
+        </div>
+        <PagePager activePage={activePage} navigate={navigateToPage} />
       </main>
       {checkout && (
         <CheckoutModal
@@ -549,10 +602,10 @@ function App() {
   );
 }
 
-function Topbar({ wallet, connectWallet }) {
+function Topbar({ wallet, activePage, navigate, connectWallet }) {
   return (
     <header className="topbar">
-      <button className="brand" onClick={() => scrollToSection('arena')} type="button">
+      <button className="brand" onClick={() => navigate('arena')} type="button">
         <span className="brand-mark">
           <FrogMark compact />
         </span>
@@ -563,7 +616,7 @@ function Topbar({ wallet, connectWallet }) {
       </button>
       <nav className="nav" aria-label="页面导航">
         {navItems.map(({ id, label, icon: Icon }) => (
-          <button key={id} onClick={() => scrollToSection(id)} type="button">
+          <button key={id} className={activePage === id ? 'active' : ''} onClick={() => navigate(id)} type="button">
             <Icon size={15} />
             {label}
           </button>
@@ -577,7 +630,24 @@ function Topbar({ wallet, connectWallet }) {
   );
 }
 
-function Hero({ form, wallet, selectedMode, selectedTemplate, update, connectWallet }) {
+function HomePage({ form, wallet, selectedMode, selectedTemplate, update, navigate, connectWallet }) {
+  return (
+    <>
+      <Hero
+        form={form}
+        wallet={wallet}
+        selectedMode={selectedMode}
+        selectedTemplate={selectedTemplate}
+        update={update}
+        navigate={navigate}
+        connectWallet={connectWallet}
+      />
+      <MetricStrip />
+    </>
+  );
+}
+
+function Hero({ form, wallet, selectedMode, selectedTemplate, update, navigate, connectWallet }) {
   return (
     <section className="hero-panel" id="arena">
       <div className="hero-copy">
@@ -594,11 +664,11 @@ function Hero({ form, wallet, selectedMode, selectedTemplate, update, connectWal
           ))}
         </div>
         <div className="hero-actions">
-          <button className="primary" onClick={() => scrollToSection('launch')} type="button">
+          <button className="primary" onClick={() => navigate('launch')} type="button">
             <Rocket size={17} />
             立即登上擂台
           </button>
-          <button className="secondary" onClick={() => scrollToSection('templates')} type="button">
+          <button className="secondary" onClick={() => navigate('templates')} type="button">
             <FileCheck2 size={17} />
             查看模板
           </button>
@@ -643,7 +713,7 @@ function Hero({ form, wallet, selectedMode, selectedTemplate, update, connectWal
                 连接
               </button>
             )}
-            <button className="primary" onClick={() => scrollToSection('launch')} type="button">
+            <button className="primary" onClick={() => navigate('launch')} type="button">
               完善参数
               <ChevronRight size={16} />
             </button>
@@ -706,6 +776,37 @@ function PrincipleSection() {
         <RuleCard icon={Users} title="无预挖公平" text="自由 Mint 模式无初始分配，全员同入口，杜绝老鼠仓和提前埋伏。" />
       </div>
     </section>
+  );
+}
+
+function RulesPage() {
+  return (
+    <>
+      <PrincipleSection />
+      <FlowSection />
+    </>
+  );
+}
+
+function PagePager({ activePage, navigate }) {
+  const currentIndex = pageIndex(activePage);
+  const previous = navItems[currentIndex - 1];
+  const next = navItems[currentIndex + 1];
+  const current = navItems[currentIndex] || navItems[0];
+  return (
+    <div className="page-pager" aria-label="页面分页">
+      <button className="secondary" disabled={!previous} onClick={() => previous && navigate(previous.id)} type="button">
+        {previous ? previous.label : '已经到首页'}
+      </button>
+      <span>
+        <b>{String(currentIndex + 1).padStart(2, '0')}</b>
+        <em>{current.label}</em>
+      </span>
+      <button className="primary" disabled={!next} onClick={() => next && navigate(next.id)} type="button">
+        {next ? next.label : '已经到最后'}
+        {next && <ChevronRight size={16} />}
+      </button>
+    </div>
   );
 }
 
@@ -791,163 +892,215 @@ function LaunchWorkbench({
   handleLogoUpload,
   copyText,
   lastResult,
+  launchStep,
+  setLaunchStep,
 }) {
+  const currentStepIndex = launchStepIndex(launchStep);
+  const previousStep = launchWizardSteps[currentStepIndex - 1];
+  const nextStep = launchWizardSteps[currentStepIndex + 1];
+
   return (
     <section className="section-panel launch-panel" id="launch">
       <SectionHead
         eyebrow="Launch Console"
         title="登上你的擂台"
-        text="填写名称、符号、模板、税率和 Mint 曲线。点击发射时会拉起真实钱包，不做假的连接状态。"
+        text="发射台改成步骤页了。按顺序填模式、基础、参数、规则，最后预览并拉起真实钱包。"
       />
       <form className="launch-workbench" onSubmit={submitLaunch}>
-        <div className="launch-main">
-          <fieldset>
-            <legend>发射模式</legend>
-            <ModeCards value={form.mode} onChange={(value) => update('mode', value)} />
-          </fieldset>
+        <div className="launch-main paged-form">
+          <LaunchStepper value={launchStep} onChange={setLaunchStep} />
 
-          <fieldset>
-            <legend>基础信息</legend>
-            <FormField label="代币名称">
-              <input value={form.tokenName} onChange={(event) => update('tokenName', event.target.value)} placeholder="Pepe Fighter" />
-            </FormField>
-            <FormField label="代币符号">
-              <input value={form.symbol} onChange={(event) => update('symbol', cleanSymbol(event.target.value))} placeholder="PEPE" />
-            </FormField>
-            <FormField label="代币总量">
-              <input value={form.totalSupply} onChange={(event) => update('totalSupply', event.target.value)} inputMode="decimal" />
-            </FormField>
-            <FormField label="项目归属钱包">
-              <input value={form.owner} onChange={(event) => update('owner', event.target.value)} placeholder={wallet.address || '0x...'} />
-            </FormField>
-            <FormField label="合约模板" wide>
-              <div className="template-picker">
-                {templates.slice(0, 8).map((template) => (
-                  <button
-                    className={form.templateId === template.id ? 'active' : ''}
-                    key={template.id}
-                    onClick={() => update('templateId', template.id)}
-                    type="button"
-                  >
-                    <span>{template.name}</span>
-                    <small>{template.tag}</small>
-                  </button>
-                ))}
-              </div>
-            </FormField>
-            <FormField label="Pepe风格Logo" wide>
-              <div className="logo-uploader">
-                <label>
-                  <Upload size={16} />
-                  上传 Logo
-                  <input accept="image/*" onChange={handleLogoUpload} type="file" />
-                </label>
-                <div className="logo-preview">
-                  {form.logoData ? <img alt="代币 Logo 预览" src={form.logoData} /> : <FrogMark />}
+          {launchStep === 'mode' && (
+            <fieldset className="wizard-fieldset">
+              <legend>发射模式</legend>
+              <ModeCards value={form.mode} onChange={(value) => update('mode', value)} />
+            </fieldset>
+          )}
+
+          {launchStep === 'basic' && (
+            <fieldset className="wizard-fieldset">
+              <legend>基础信息</legend>
+              <FormField label="代币名称">
+                <input value={form.tokenName} onChange={(event) => update('tokenName', event.target.value)} placeholder="Pepe Fighter" />
+              </FormField>
+              <FormField label="代币符号">
+                <input value={form.symbol} onChange={(event) => update('symbol', cleanSymbol(event.target.value))} placeholder="PEPE" />
+              </FormField>
+              <FormField label="代币总量">
+                <input value={form.totalSupply} onChange={(event) => update('totalSupply', event.target.value)} inputMode="decimal" />
+              </FormField>
+              <FormField label="项目归属钱包">
+                <input value={form.owner} onChange={(event) => update('owner', event.target.value)} placeholder={wallet.address || '0x...'} />
+              </FormField>
+              <FormField label="合约模板" wide>
+                <div className="template-picker">
+                  {templates.slice(0, 8).map((template) => (
+                    <button
+                      className={form.templateId === template.id ? 'active' : ''}
+                      key={template.id}
+                      onClick={() => update('templateId', template.id)}
+                      type="button"
+                    >
+                      <span>{template.name}</span>
+                      <small>{template.tag}</small>
+                    </button>
+                  ))}
+                </div>
+              </FormField>
+              <FormField label="Pepe风格Logo" wide>
+                <div className="logo-uploader">
+                  <label>
+                    <Upload size={16} />
+                    上传 Logo
+                    <input accept="image/*" onChange={handleLogoUpload} type="file" />
+                  </label>
+                  <div className="logo-preview">
+                    {form.logoData ? <img alt="代币 Logo 预览" src={form.logoData} /> : <FrogMark />}
+                  </div>
+                </div>
+              </FormField>
+            </fieldset>
+          )}
+
+          {launchStep === 'params' && (
+            <fieldset className="wizard-fieldset">
+              <legend>{form.mode === 'mint' ? '自由 Mint 参数' : '直接发币参数'}</legend>
+              {form.mode === 'mint' ? (
+                <>
+                  <FormField label="每份支付 BNB">
+                    <input value={form.mintPrice} onChange={(event) => update('mintPrice', event.target.value)} inputMode="decimal" />
+                  </FormField>
+                  <FormField label="每份获得代币">
+                    <input value={form.tokensPerMint} onChange={(event) => update('tokensPerMint', event.target.value)} inputMode="decimal" />
+                  </FormField>
+                  <FormField label="Mint 总份数">
+                    <input value={form.mintSlots} onChange={(event) => update('mintSlots', event.target.value)} inputMode="decimal" />
+                  </FormField>
+                  <FormField label="每钱包上限">
+                    <input value={form.maxPerWallet} onChange={(event) => update('maxPerWallet', event.target.value)} inputMode="decimal" />
+                  </FormField>
+                  <FormField label="价格曲线">
+                    <SegmentedControl
+                      value={form.priceCurve}
+                      onChange={(value) => update('priceCurve', value)}
+                      options={['固定价格', '阶梯涨价', '时间递增']}
+                    />
+                  </FormField>
+                  <FormField label="毕业目标 BNB">
+                    <input value={form.graduationTarget} onChange={(event) => update('graduationTarget', event.target.value)} inputMode="decimal" />
+                  </FormField>
+                </>
+              ) : (
+                <>
+                  <FormField label="初始流动性 BNB">
+                    <input value={form.initialLiquidity} onChange={(event) => update('initialLiquidity', event.target.value)} inputMode="decimal" />
+                  </FormField>
+                  <FormField label="首发价格">
+                    <input value={form.launchPrice} onChange={(event) => update('launchPrice', event.target.value)} inputMode="decimal" />
+                  </FormField>
+                  <FormField label="团队分配 %">
+                    <input value={form.teamAllocation} onChange={(event) => update('teamAllocation', event.target.value)} inputMode="decimal" />
+                  </FormField>
+                  <FormField label="开盘时间">
+                    <input value={form.startTime} onChange={(event) => update('startTime', event.target.value)} placeholder="立即 / 2026-06-09 20:00" />
+                  </FormField>
+                </>
+              )}
+            </fieldset>
+          )}
+
+          {launchStep === 'rules' && (
+            <fieldset className="wizard-fieldset">
+              <legend>税率、权限与社群</legend>
+              <FormField label="买税 %">
+                <input value={form.buyTax} onChange={(event) => update('buyTax', event.target.value)} inputMode="decimal" />
+              </FormField>
+              <FormField label="卖税 %">
+                <input value={form.sellTax} onChange={(event) => update('sellTax', event.target.value)} inputMode="decimal" />
+              </FormField>
+              <FormField label="燃烧比例 %">
+                <input value={form.burnRate} onChange={(event) => update('burnRate', event.target.value)} inputMode="decimal" />
+              </FormField>
+              <FormField label="开始时间">
+                <input value={form.startTime} onChange={(event) => update('startTime', event.target.value)} placeholder="立即 / 指定时间" />
+              </FormField>
+              <ToggleField
+                checked={form.deadLiquidity}
+                label="底池自动转 dead"
+                text="初始 LP 或 Mint 累积底池按规则进入黑洞地址。"
+                onChange={(value) => update('deadLiquidity', value)}
+              />
+              <ToggleField
+                checked={form.renounceOwner}
+                label="部署后放弃 Owner"
+                text="合约所有权抛弃后，后续无人可随意改参数。"
+                onChange={(value) => update('renounceOwner', value)}
+              />
+              <ToggleField
+                checked={form.whitelist}
+                label="开启白名单窗口"
+                text="可用于早期社区名单，公开开盘前自动结束。"
+                onChange={(value) => update('whitelist', value)}
+              />
+              <ToggleField
+                checked={form.autoVerify}
+                label="自动验证代码"
+                text="部署后在 BscScan 展示源码和参数。"
+                onChange={(value) => update('autoVerify', value)}
+              />
+              <FormField label="官网">
+                <input value={form.website} onChange={(event) => update('website', event.target.value)} placeholder="https://..." />
+              </FormField>
+              <FormField label="推特 / X">
+                <input value={form.x} onChange={(event) => update('x', event.target.value)} placeholder="@..." />
+              </FormField>
+              <FormField label="Telegram">
+                <input value={form.telegram} onChange={(event) => update('telegram', event.target.value)} placeholder="https://t.me/..." />
+              </FormField>
+              <FormField label="备注" wide>
+                <textarea value={form.note} onChange={(event) => update('note', event.target.value)} placeholder="项目宣言、风险提醒、社群安排" />
+              </FormField>
+            </fieldset>
+          )}
+
+          {launchStep === 'preview' && (
+            <fieldset className="wizard-fieldset preview-fieldset">
+              <legend>确认发射</legend>
+              <div className="launch-confirm">
+                <Rocket size={26} />
+                <h3>{form.tokenName || 'Pepe Fighter'} 准备登上擂台</h3>
+                <p>请确认右侧预览、支付金额、黑洞底池和 Owner 规则。点击登上擂台后会拉起真实钱包。</p>
+                <div className="benefit-grid compact">
+                  {benefits.slice(0, 4).map((item) => (
+                    <span key={item}>
+                      <CheckCircle2 size={15} />
+                      {item}
+                    </span>
+                  ))}
                 </div>
               </div>
-            </FormField>
-          </fieldset>
+            </fieldset>
+          )}
 
-          <fieldset>
-            <legend>{form.mode === 'mint' ? '自由 Mint 参数' : '直接发币参数'}</legend>
-            {form.mode === 'mint' ? (
-              <>
-                <FormField label="每份支付 BNB">
-                  <input value={form.mintPrice} onChange={(event) => update('mintPrice', event.target.value)} inputMode="decimal" />
-                </FormField>
-                <FormField label="每份获得代币">
-                  <input value={form.tokensPerMint} onChange={(event) => update('tokensPerMint', event.target.value)} inputMode="decimal" />
-                </FormField>
-                <FormField label="Mint 总份数">
-                  <input value={form.mintSlots} onChange={(event) => update('mintSlots', event.target.value)} inputMode="decimal" />
-                </FormField>
-                <FormField label="每钱包上限">
-                  <input value={form.maxPerWallet} onChange={(event) => update('maxPerWallet', event.target.value)} inputMode="decimal" />
-                </FormField>
-                <FormField label="价格曲线">
-                  <SegmentedControl
-                    value={form.priceCurve}
-                    onChange={(value) => update('priceCurve', value)}
-                    options={['固定价格', '阶梯涨价', '时间递增']}
-                  />
-                </FormField>
-                <FormField label="毕业目标 BNB">
-                  <input value={form.graduationTarget} onChange={(event) => update('graduationTarget', event.target.value)} inputMode="decimal" />
-                </FormField>
-              </>
+          <div className="step-actions">
+            <button className="secondary" disabled={!previousStep} onClick={() => previousStep && setLaunchStep(previousStep.id)} type="button">
+              {previousStep ? previousStep.title : '第一步'}
+            </button>
+            {nextStep ? (
+              <button className="primary" onClick={() => setLaunchStep(nextStep.id)} type="button">
+                下一步：{nextStep.title}
+                <ChevronRight size={16} />
+              </button>
             ) : (
-              <>
-                <FormField label="初始流动性 BNB">
-                  <input value={form.initialLiquidity} onChange={(event) => update('initialLiquidity', event.target.value)} inputMode="decimal" />
-                </FormField>
-                <FormField label="首发价格">
-                  <input value={form.launchPrice} onChange={(event) => update('launchPrice', event.target.value)} inputMode="decimal" />
-                </FormField>
-                <FormField label="团队分配 %">
-                  <input value={form.teamAllocation} onChange={(event) => update('teamAllocation', event.target.value)} inputMode="decimal" />
-                </FormField>
-                <FormField label="开盘时间">
-                  <input value={form.startTime} onChange={(event) => update('startTime', event.target.value)} placeholder="立即 / 2026-06-09 20:00" />
-                </FormField>
-              </>
+              <button className="primary" type="submit">
+                <CreditCard size={16} />
+                登上擂台
+              </button>
             )}
-          </fieldset>
-
-          <fieldset>
-            <legend>税率、权限与社群</legend>
-            <FormField label="买税 %">
-              <input value={form.buyTax} onChange={(event) => update('buyTax', event.target.value)} inputMode="decimal" />
-            </FormField>
-            <FormField label="卖税 %">
-              <input value={form.sellTax} onChange={(event) => update('sellTax', event.target.value)} inputMode="decimal" />
-            </FormField>
-            <FormField label="燃烧比例 %">
-              <input value={form.burnRate} onChange={(event) => update('burnRate', event.target.value)} inputMode="decimal" />
-            </FormField>
-            <FormField label="开始时间">
-              <input value={form.startTime} onChange={(event) => update('startTime', event.target.value)} placeholder="立即 / 指定时间" />
-            </FormField>
-            <ToggleField
-              checked={form.deadLiquidity}
-              label="底池自动转 dead"
-              text="初始 LP 或 Mint 累积底池按规则进入黑洞地址。"
-              onChange={(value) => update('deadLiquidity', value)}
-            />
-            <ToggleField
-              checked={form.renounceOwner}
-              label="部署后放弃 Owner"
-              text="合约所有权抛弃后，后续无人可随意改参数。"
-              onChange={(value) => update('renounceOwner', value)}
-            />
-            <ToggleField
-              checked={form.whitelist}
-              label="开启白名单窗口"
-              text="可用于早期社区名单，公开开盘前自动结束。"
-              onChange={(value) => update('whitelist', value)}
-            />
-            <ToggleField
-              checked={form.autoVerify}
-              label="自动验证代码"
-              text="部署后在 BscScan 展示源码和参数。"
-              onChange={(value) => update('autoVerify', value)}
-            />
-            <FormField label="官网">
-              <input value={form.website} onChange={(event) => update('website', event.target.value)} placeholder="https://..." />
-            </FormField>
-            <FormField label="推特 / X">
-              <input value={form.x} onChange={(event) => update('x', event.target.value)} placeholder="@..." />
-            </FormField>
-            <FormField label="Telegram">
-              <input value={form.telegram} onChange={(event) => update('telegram', event.target.value)} placeholder="https://t.me/..." />
-            </FormField>
-            <FormField label="备注" wide>
-              <textarea value={form.note} onChange={(event) => update('note', event.target.value)} placeholder="项目宣言、风险提醒、社群安排" />
-            </FormField>
-          </fieldset>
+          </div>
         </div>
 
-        <aside className="launch-summary">
+        <aside className={`launch-summary ${launchStep !== 'preview' ? 'desktop-summary' : ''}`}>
           <Panel title="擂台预览" icon={Gauge}>
             <div className="token-preview">
               <div className="preview-logo">{form.logoData ? <img alt="Logo" src={form.logoData} /> : <FrogMark />}</div>
@@ -1103,6 +1256,19 @@ function ModeToggle({ value, onChange }) {
         <button className={value === id ? 'active' : ''} key={id} onClick={() => onChange(id)} type="button">
           <Icon size={15} />
           {title}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function LaunchStepper({ value, onChange }) {
+  return (
+    <div className="launch-stepper" aria-label="发射步骤">
+      {launchWizardSteps.map((step, index) => (
+        <button className={value === step.id ? 'active' : ''} key={step.id} onClick={() => onChange(step.id)} type="button">
+          <span>{String(index + 1).padStart(2, '0')}</span>
+          <b>{step.label}</b>
         </button>
       ))}
     </div>
