@@ -1290,6 +1290,46 @@ legend {
   min-height: 30px;
 }
 
+.owner-console {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(218, 255, 138, 0.12);
+}
+
+.owner-console-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.owner-console-head b {
+  font-size: 14px;
+}
+
+.owner-console-head span,
+.owner-console p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.owner-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.owner-actions .secondary {
+  min-height: 34px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
 .launch-summary {
   position: sticky;
   top: 86px;

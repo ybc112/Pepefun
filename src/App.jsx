@@ -35,6 +35,8 @@ const TOKEN_CONTRACT = import.meta.env.VITE_TOKEN_CONTRACT || '0xb3b2afb0de33d4d
 const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD';
 const BSC_PUBLIC_RPCS = ['https://bsc-mainnet.public.blastapi.io', 'https://bsc-rpc.publicnode.com', 'https://bsc.drpc.org'];
 const MINT_SELECTORS = {
+  launch: '0x01339c21',
+  launchWhitelist: '0x7a77a72d',
   owner: '0x8da5cb5b',
   tokenAddr: '0x5fbe4d1d',
   price: '0xa035b1fe',
@@ -50,6 +52,13 @@ const MINT_SELECTORS = {
   accMint: '0x5d178eb7',
   isWhitelist: '0x5342acb4',
   setWhitelist: '0xc492f046',
+  setWhiteLimit: '0x741e0a29',
+  setMintLimit: '0x9e6a1d7d',
+  setAccEachLimit: '0xa3d75096',
+  setAccMintLimit: '0x8063dd79',
+  setPrice: '0x91b7f5ed',
+  setAmountPerUnits: '0xf0793ad8',
+  setFundAddress: '0x85dc3004',
 };
 const ERC20_SELECTORS = {
   name: '0x06fdde03',
@@ -57,6 +66,7 @@ const ERC20_SELECTORS = {
   decimals: '0x313ce567',
   totalSupply: '0x18160ddd',
   balanceOf: '0x70a08231',
+  approve: '0x095ea7b3',
 };
 const DEFAULT_CHAIN_INFO = {
   loading: true,
@@ -350,6 +360,15 @@ function weiHex(amountWei) {
   return `0x${value.toString(16)}`;
 }
 
+function decimalToUnits(value, decimals = 18) {
+  const normalized = String(value || '0').replaceAll(',', '').trim();
+  const [whole = '0', fraction = ''] = normalized.split('.');
+  const unitDecimals = Number(decimals) || 18;
+  const cleanWhole = whole.replace(/[^\d]/g, '') || '0';
+  const cleanFraction = fraction.replace(/[^\d]/g, '').padEnd(unitDecimals, '0').slice(0, unitDecimals) || '0';
+  return BigInt(cleanWhole) * 10n ** BigInt(unitDecimals) + BigInt(cleanFraction);
+}
+
 function txUrl(hash) {
   return hash ? `https://bscscan.com/tx/${hash}` : '#';
 }
@@ -459,6 +478,19 @@ function encodeWhitelistCall(addresses, enabled = true) {
   const flag = pad64(enabled ? '1' : '0');
   const length = pad64(addresses.length.toString(16));
   return `${MINT_SELECTORS.setWhitelist}${offset}${flag}${length}${encodedAddresses}`;
+}
+
+function encodeUintCall(selector, value) {
+  const amount = typeof value === 'bigint' ? value : BigInt(value || 0);
+  return `${selector}${pad64(amount.toString(16))}`;
+}
+
+function encodeAddressCall(selector, address) {
+  return `${selector}${pad64(address)}`;
+}
+
+function encodeApproveCall(spender, amount) {
+  return `${ERC20_SELECTORS.approve}${pad64(spender)}${pad64(amount.toString(16))}`;
 }
 
 async function publicRpcBatch(calls) {
@@ -837,14 +869,10 @@ function App() {
     const { provider, address } = await ensureWallet();
     const quantity = Number(currentCheckout.quantity || 1);
 
-    if (!chainInfo.start && !chainInfo.startWhitelist) {
-      throw new Error('Mint 还未开始，请等待合约开启。');
-    }
-
-    if (chainInfo.startWhitelist) {
+    if (!chainInfo.start) {
       const whitelistRaw = await ethCall(provider, MINT_CONTRACT, selectorWithAddress(MINT_SELECTORS.isWhitelist, address)).catch(() => '');
-      if (whitelistRaw && !decodeBool(whitelistRaw)) {
-        throw new Error('白名单窗口已开启，当前钱包还不在白名单。');
+      if (!whitelistRaw || !decodeBool(whitelistRaw)) {
+        throw new Error(chainInfo.startWhitelist ? '白名单窗口已开启，当前钱包还不在白名单。' : 'Mint 还未开始，请等待合约开启。');
       }
     }
 
@@ -904,6 +932,35 @@ function App() {
       tokenAddress: chainInfo.tokenAddress || TOKEN_CONTRACT,
       purpose: 'whitelist',
       whitelistCount: addresses.length,
+    };
+  }
+
+  async function requestContractAction(currentCheckout) {
+    const { provider, address } = await ensureWallet();
+
+    if (currentCheckout.requiresOwner && !sameAddress(address, chainInfo.owner)) {
+      throw new Error('当前钱包不是 Mint 合约 Owner，无法执行该管理操作。');
+    }
+
+    const txHash = await provider.request({
+      method: 'eth_sendTransaction',
+      params: [
+        {
+          from: address,
+          to: currentCheckout.receiver,
+          data: currentCheckout.data,
+          value: '0x0',
+        },
+      ],
+    });
+
+    return {
+      txHash,
+      from: address,
+      receiver: currentCheckout.receiver,
+      tokenAddress: chainInfo.tokenAddress || TOKEN_CONTRACT,
+      purpose: currentCheckout.purpose || 'ownerAction',
+      actionLabel: currentCheckout.actionLabel,
     };
   }
 
@@ -1021,6 +1078,119 @@ function App() {
     });
   }
 
+  function openContractActionCheckout(actionId) {
+    if (chainInfo.loading) {
+      notify('正在读取链上参数，请稍后再试。');
+      return;
+    }
+    if (chainInfo.error) {
+      notify('链上参数读取失败，请先刷新。');
+      return;
+    }
+    if (wallet.address && chainInfo.owner && !sameAddress(wallet.address, chainInfo.owner)) {
+      notify('当前钱包不是 Mint 合约 Owner，无法执行管理操作。');
+      return;
+    }
+
+    const tokenSymbol = chainInfo.tokenSymbol || form.symbol || 'PEPE';
+    const tokenAddress = chainInfo.tokenAddress || TOKEN_CONTRACT;
+    const launchUnits = BigInt(Math.max(chainInfo.mintLimit || 0, chainInfo.whiteLimit || 0, 1));
+    const launchTokenAmount = chainInfo.amountPerUnits * launchUnits;
+    const nextPriceWei = decimalToUnits(form.mintPrice || formatBnbFromWei(chainInfo.priceWei, 8), 18);
+    const nextAmountPerUnits = decimalToUnits(form.tokensPerMint || formatUnits(chainInfo.amountPerUnits, chainInfo.tokenDecimals, 4), chainInfo.tokenDecimals);
+    const nextMintLimit = BigInt(Math.max(1, Math.floor(numberValue(form.mintSlots))));
+    const nextAccMintLimit = BigInt(Math.max(1, Math.floor(numberValue(form.maxPerWallet))));
+    const nextAccEachLimit = BigInt(Math.max(1, Math.floor(numberValue(form.mintQuantity))));
+
+    const actions = {
+      approveLaunch: {
+        title: '授权发射代币',
+        description: '这次会授权 Mint 合约从 Owner 钱包划转发射所需代币。开启白名单或公开 Mint 前通常需要先授权。',
+        receiver: tokenAddress,
+        data: encodeApproveCall(MINT_CONTRACT, launchTokenAmount),
+        summary: [
+          ['Token合约', shortAddress(tokenAddress)],
+          ['授权给', shortAddress(MINT_CONTRACT)],
+          ['授权数量', `${formatUnits(launchTokenAmount, chainInfo.tokenDecimals, 4)} ${tokenSymbol}`],
+        ],
+      },
+      launchWhitelist: {
+        title: '开启白名单窗口',
+        description: '这次会调用 launchWhitelist()，合约会从 Owner 钱包划转白名单阶段所需代币。',
+        receiver: MINT_CONTRACT,
+        data: MINT_SELECTORS.launchWhitelist,
+        summary: [
+          ['Mint合约', shortAddress(MINT_CONTRACT)],
+          ['白名单名额', `${chainInfo.whiteLimit || 0} 份`],
+          ['每份数量', `${formatUnits(chainInfo.amountPerUnits, chainInfo.tokenDecimals, 4)} ${tokenSymbol}`],
+        ],
+      },
+      launchPublic: {
+        title: '开启公开 Mint',
+        description: '这次会调用 launch()，合约会从 Owner 钱包划转公开 Mint 阶段所需代币。',
+        receiver: MINT_CONTRACT,
+        data: MINT_SELECTORS.launch,
+        summary: [
+          ['Mint合约', shortAddress(MINT_CONTRACT)],
+          ['公开总份数', `${chainInfo.mintLimit || 0} 份`],
+          ['每份数量', `${formatUnits(chainInfo.amountPerUnits, chainInfo.tokenDecimals, 4)} ${tokenSymbol}`],
+        ],
+      },
+      setPrice: {
+        title: '更新 Mint 单价',
+        description: '这次会把表单里的 Mint 单价写入合约。',
+        receiver: MINT_CONTRACT,
+        data: encodeUintCall(MINT_SELECTORS.setPrice, nextPriceWei),
+        summary: [['新单价', `${formatBnbFromWei(nextPriceWei, 8)} BNB`]],
+      },
+      setAmountPerUnits: {
+        title: '更新每份代币',
+        description: '这次会把表单里的每份获得代币数量写入合约。',
+        receiver: MINT_CONTRACT,
+        data: encodeUintCall(MINT_SELECTORS.setAmountPerUnits, nextAmountPerUnits),
+        summary: [['每份获得', `${formatUnits(nextAmountPerUnits, chainInfo.tokenDecimals, 4)} ${tokenSymbol}`]],
+      },
+      setMintLimit: {
+        title: '更新 Mint 总份数',
+        description: '这次会把表单里的 Mint 总份数写入合约。',
+        receiver: MINT_CONTRACT,
+        data: encodeUintCall(MINT_SELECTORS.setMintLimit, nextMintLimit),
+        summary: [['Mint总份数', `${nextMintLimit.toString()} 份`]],
+      },
+      setAccMintLimit: {
+        title: '更新每钱包上限',
+        description: '这次会把表单里的每钱包 Mint 上限写入合约。',
+        receiver: MINT_CONTRACT,
+        data: encodeUintCall(MINT_SELECTORS.setAccMintLimit, nextAccMintLimit),
+        summary: [['每钱包上限', `${nextAccMintLimit.toString()} 份`]],
+      },
+      setAccEachLimit: {
+        title: '更新单次 Mint 上限',
+        description: '这次会把本次 Mint 份数作为单次交易上限写入合约。',
+        receiver: MINT_CONTRACT,
+        data: encodeUintCall(MINT_SELECTORS.setAccEachLimit, nextAccEachLimit),
+        summary: [['单次上限', `${nextAccEachLimit.toString()} 份`]],
+      },
+    };
+
+    const action = actions[actionId];
+    if (!action) return;
+
+    setCheckout({
+      type: 'contractAction',
+      title: action.title,
+      description: action.description,
+      amountBnb: '0',
+      valueWei: '0',
+      receiver: action.receiver,
+      data: action.data,
+      requiresOwner: true,
+      purpose: actionId,
+      actionLabel: action.title,
+      summary: [['Owner', shortAddress(chainInfo.owner)], ...action.summary],
+    });
+  }
+
   function submitLaunch(event) {
     event.preventDefault();
     if (form.mode === 'mint') {
@@ -1059,13 +1229,23 @@ function App() {
         payment = await requestLiveMint(checkout);
       } else if (checkout.type === 'whitelist') {
         payment = await requestWhitelistUpdate(checkout);
+      } else if (checkout.type === 'contractAction') {
+        payment = await requestContractAction(checkout);
       } else {
         payment = await requestPayment(checkout.amountBnb, checkout.type);
       }
+      const actionName =
+        checkout.type === 'mintLive'
+          ? '真实 Mint'
+          : checkout.type === 'whitelist'
+            ? '白名单写入'
+            : checkout.type === 'contractAction'
+              ? checkout.actionLabel || '合约管理'
+              : '发射';
       const result = {
         ...payment,
         amountBnb: checkout.amountBnb,
-        action: checkout.type === 'mintLive' ? '真实 Mint' : checkout.type === 'whitelist' ? '白名单写入' : '发射',
+        action: actionName,
         tokenName: form.tokenName.trim(),
         symbol: form.symbol.trim(),
         template: selectedTemplate.name,
@@ -1135,6 +1315,7 @@ function App() {
               chainInfo={chainInfo}
               refreshChainInfo={refreshChainInfo}
               openWhitelistCheckout={openWhitelistCheckout}
+              openContractActionCheckout={openContractActionCheckout}
               busy={busy}
             />
           )}
@@ -1451,6 +1632,7 @@ function LaunchWorkbench({
   chainInfo,
   refreshChainInfo,
   openWhitelistCheckout,
+  openContractActionCheckout,
   busy,
 }) {
   const currentStepIndex = launchStepIndex(launchStep);
@@ -1827,6 +2009,79 @@ function LaunchWorkbench({
                     Pancake
                   </a>
                 </div>
+                <div className="owner-console">
+                  <div className="owner-console-head">
+                    <b>Owner 管理</b>
+                    <span>{ownerConnected ? '当前钱包可管理' : '连接 Owner 钱包后执行'}</span>
+                  </div>
+                  <div className="owner-actions">
+                    <button
+                      className="secondary"
+                      disabled={busy || (wallet.address && !ownerConnected)}
+                      onClick={() => openContractActionCheckout('approveLaunch')}
+                      type="button"
+                    >
+                      授权代币
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={busy || chainInfo.startWhitelist || (wallet.address && !ownerConnected)}
+                      onClick={() => openContractActionCheckout('launchWhitelist')}
+                      type="button"
+                    >
+                      开白名单
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={busy || chainInfo.start || (wallet.address && !ownerConnected)}
+                      onClick={() => openContractActionCheckout('launchPublic')}
+                      type="button"
+                    >
+                      开公开Mint
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={busy || (wallet.address && !ownerConnected)}
+                      onClick={() => openContractActionCheckout('setPrice')}
+                      type="button"
+                    >
+                      保存单价
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={busy || (wallet.address && !ownerConnected)}
+                      onClick={() => openContractActionCheckout('setAmountPerUnits')}
+                      type="button"
+                    >
+                      保存每份
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={busy || (wallet.address && !ownerConnected)}
+                      onClick={() => openContractActionCheckout('setMintLimit')}
+                      type="button"
+                    >
+                      保存总份数
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={busy || (wallet.address && !ownerConnected)}
+                      onClick={() => openContractActionCheckout('setAccMintLimit')}
+                      type="button"
+                    >
+                      保存钱包上限
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={busy || (wallet.address && !ownerConnected)}
+                      onClick={() => openContractActionCheckout('setAccEachLimit')}
+                      type="button"
+                    >
+                      保存单次上限
+                    </button>
+                  </div>
+                  <p>开启白名单或公开 Mint 前，请先确认 Owner 钱包已授权足够代币给 Mint 合约。</p>
+                </div>
               </>
             )}
           </Panel>
@@ -2074,7 +2329,8 @@ function FrogMark({ compact = false }) {
 }
 
 function CheckoutModal({ checkout, wallet, busy, confirm, cancel }) {
-  const ActionIcon = checkout.type === 'whitelist' ? LockKeyhole : checkout.type === 'mintLive' ? Coins : CreditCard;
+  const ActionIcon =
+    checkout.type === 'whitelist' ? LockKeyhole : checkout.type === 'mintLive' ? Coins : checkout.type === 'contractAction' ? Settings : CreditCard;
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
