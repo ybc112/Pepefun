@@ -236,6 +236,25 @@ const templates = [
   },
 ];
 
+const mintPlaybooks = [
+  {
+    id: 'whitelist',
+    name: '白名单Mint',
+    tag: '主玩法',
+    text: '创建时写入白名单，白名单窗口结束后项目方可开公开 Mint。',
+    whitelist: true,
+    priceCurve: '固定价格',
+  },
+  {
+    id: 'public',
+    name: '公开Mint',
+    tag: '全员同入口',
+    text: '任何钱包按单价 Mint，卖完后募集 BNB 自动进池。',
+    whitelist: false,
+    priceCurve: '固定价格',
+  },
+];
+
 const fairClaims = [
   ['没有开发跑路', '部署规则公开，Owner 可选直接抛弃。'],
   ['没有底池被撤', 'LP 自动打入 dead 黑洞地址。'],
@@ -270,7 +289,7 @@ const launchWizardSteps = [
   { id: 'mode', label: '模式', title: '发射模式' },
   { id: 'basic', label: '基础', title: '基础信息' },
   { id: 'params', label: '参数', title: '发射参数' },
-  { id: 'rules', label: '规则', title: '税率与权限' },
+  { id: 'rules', label: '白名单', title: '白名单与规则' },
   { id: 'preview', label: '预览', title: '确认发射' },
 ];
 
@@ -290,6 +309,7 @@ const defaultForm = {
   mintPrice: '0.001',
   tokensPerMint: '1000',
   mintSlots: '1000',
+  whiteMintSlots: '100',
   maxPerWallet: '5',
   priceCurve: '固定价格',
   graduationTarget: '5',
@@ -299,7 +319,7 @@ const defaultForm = {
   telegram: '',
   deadLiquidity: true,
   renounceOwner: true,
-  whitelist: false,
+  whitelist: true,
   whitelistAddresses: '',
   mintQuantity: '1',
   vanitySuffix: '',
@@ -661,7 +681,8 @@ function getFairMintParams(form) {
   const price = decimalToUnits(form.mintPrice, 18);
   const amountPerMint = decimalToUnits(form.tokensPerMint, 18);
   const mintLimit = BigInt(Math.max(1, Math.floor(numberValue(form.mintSlots))));
-  const whiteLimit = form.whitelist ? mintLimit : 0n;
+  const requestedWhiteLimit = BigInt(Math.max(1, Math.floor(numberValue(form.whiteMintSlots) || numberValue(form.mintSlots))));
+  const whiteLimit = form.whitelist ? (requestedWhiteLimit > mintLimit ? mintLimit : requestedWhiteLimit) : 0n;
   const accMintLimit = BigInt(Math.max(1, Math.floor(numberValue(form.maxPerWallet))));
   const accEachLimit = BigInt(Math.max(1, Math.floor(numberValue(form.mintQuantity))));
   const saleSupply = amountPerMint * mintLimit;
@@ -1123,6 +1144,7 @@ function App() {
         ...current,
         mode: value,
         templateId: value === 'mint' ? 'fair-mint' : current.templateId === 'fair-mint' ? 'standard' : current.templateId,
+        whitelist: value === 'mint' ? true : false,
       }));
       return;
     }
@@ -1385,7 +1407,7 @@ function App() {
       blockNumber: deployment?.blockNumber || null,
       confirmed: Boolean(receipt && receipt.status === '0x1'),
       salt,
-      actionLabel: isFairMintTemplate(form.templateId) ? '创建白名单Mint池' : isDividendTemplate(form.templateId) ? '创建分红新币' : '创建新币',
+      actionLabel: isFairMintTemplate(form.templateId) ? (form.whitelist ? '创建白名单Mint池' : '创建公开Mint池') : isDividendTemplate(form.templateId) ? '创建分红新币' : '创建新币',
     };
   }
 
@@ -1528,12 +1550,14 @@ function App() {
       if (liquidityParams.tokenAmount > totalSupply) return '按当前首发价格计算，进池代币数量超过了总量';
     }
     const whitelistInfo = parseWhitelist(form.whitelistAddresses);
-    if (form.whitelist && whitelistInfo.valid.length === 0) return '已开启白名单，请至少添加 1 个有效钱包地址';
-    if (form.whitelist && whitelistInfo.invalid.length > 0) return '白名单里有格式错误的钱包地址，请先修正';
+    if (form.mode === 'mint' && form.whitelist && whitelistInfo.valid.length === 0) return '已开启白名单，请至少添加 1 个有效钱包地址';
+    if (form.mode === 'mint' && form.whitelist && whitelistInfo.invalid.length > 0) return '白名单里有格式错误的钱包地址，请先修正';
     if (form.mode === 'mint') {
       if (numberValue(form.mintPrice) <= 0) return 'Mint 单价必须大于 0';
       if (numberValue(form.tokensPerMint) <= 0) return '每份 Mint 获得代币必须大于 0';
       if (numberValue(form.mintSlots) <= 0) return 'Mint 总份数必须大于 0';
+      if (form.whitelist && numberValue(form.whiteMintSlots) <= 0) return '白名单总份数必须大于 0';
+      if (form.whitelist && numberValue(form.whiteMintSlots) > numberValue(form.mintSlots)) return '白名单总份数不能超过 Mint 总份数';
       if (numberValue(form.maxPerWallet) <= 0) return '每钱包 Mint 上限必须大于 0';
       if (numberValue(form.mintQuantity) <= 0) return '单次 Mint 上限必须大于 0';
       const totalSupply = decimalToUnits(form.totalSupply, 18);
@@ -1641,6 +1665,7 @@ function App() {
     const dividendMode = isDividendTemplate(form.templateId);
     const fairMintMode = isFairMintTemplate(form.templateId);
     const mintParams = getFairMintParams(form);
+    const mintLaunchName = form.whitelist ? '白名单 Mint 池' : '公开 Mint 池';
     const templateId = getTemplateId(form.templateId);
     const suffix = normalizeHexSuffix(form.vanitySuffix);
     const totalValueWei = factoryReady ? factoryFeeWei + (fairMintMode ? 0n : liquidityParams.bnbAmount) : 0n;
@@ -1648,22 +1673,24 @@ function App() {
       type: factoryReady ? 'factoryCreate' : 'factoryPlan',
       title: `发币工厂方案：${form.tokenName || 'Pepe Token'}`,
       description: factoryReady
-        ? `这次会调用发币工厂合约创建新的${fairMintMode ? '白名单 Mint 池' : dividendMode ? '持币分红平台币' : '固定总量 BEP20'}。请在钱包里核对工厂地址、创建费和网络。`
+        ? `这次会调用发币工厂合约创建新的${fairMintMode ? mintLaunchName : dividendMode ? '持币分红平台币' : '固定总量 BEP20'}。请在钱包里核对工厂地址、创建费和网络。`
         : '自助发新币需要先部署发币工厂合约。当前不会拉起钱包转账，先把你的发币参数整理成工厂部署方案。',
       amountBnb: factoryReady ? formatBnbFromWei(totalValueWei, 8) : '0',
       valueWei: totalValueWei.toString(),
-      actionLabel: factoryReady ? (fairMintMode ? '确认创建Mint池' : dividendMode ? '确认创建分红币' : '确认创建新币') : '继续配置参数',
+      actionLabel: factoryReady ? (fairMintMode ? (form.whitelist ? '确认创建白名单Mint池' : '确认创建公开Mint池') : dividendMode ? '确认创建分红币' : '确认创建新币') : '继续配置参数',
       summary: [
         ['工厂状态', factoryReady ? '可发真实创建交易' : '等待链上地址'],
         ['工厂合约', factoryReady ? shortAddress(FACTORY_CONTRACT) : '准备中'],
         ['发射模式', selectedMode.title],
         ['合约模板', selectedTemplate.name],
         ['模板ID', templateId ? String(templateId) : '暂未开放'],
-        ['链上动作', fairMintMode ? '创建白名单 Mint 池' : dividendMode ? '创建持币分红币' : '创建固定总量新币'],
-        ['创建方法', fairMintMode ? '白名单 Mint + 自动黑洞 LP' : dividendMode ? '持币分红平台币' : '标准固定总量'],
+        ['链上动作', fairMintMode ? `创建${mintLaunchName}` : dividendMode ? '创建持币分红币' : '创建固定总量新币'],
+        ['创建方法', fairMintMode ? `${form.whitelist ? '白名单优先' : '公开 Mint'} + 自动黑洞 LP` : dividendMode ? '持币分红平台币' : '标准固定总量'],
         ['代币总量', formatNumber(form.totalSupply, 0)],
         ['创建费', factoryReady ? `${formatBnbFromWei(factoryFeeWei, 8)} BNB` : '部署后链上读取'],
         fairMintMode ? ['Mint单价', `${formatBnbFromWei(mintParams.price, 8)} BNB`] : ['初始流动性', `${formatBnbFromWei(liquidityParams.bnbAmount, 8)} BNB`],
+        ...(fairMintMode ? [['Mint总份数', `${mintParams.mintLimit.toString()} 份`]] : []),
+        ...(fairMintMode && form.whitelist ? [['白名单总份数', `${mintParams.whiteLimit.toString()} 份`]] : []),
         fairMintMode
           ? ['毕业进池代币', `${formatUnits(mintParams.liquidityTokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`]
           : ['进池代币', `${formatUnits(liquidityParams.tokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`],
@@ -1678,7 +1705,7 @@ function App() {
         ['Salt', form.vanitySalt ? shortAddress(saltToBytes32(form.vanitySalt)) : '确认时自动生成'],
         ['权限', fairMintMode ? 'Token无Owner，Mint池Owner给项目方' : 'Token无Owner，LP已黑洞'],
         ['接收钱包', form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '确认时连接'],
-        ['白名单', form.whitelist ? `${whitelistInfo.valid.length} 个地址` : '未开启'],
+        ['白名单', form.whitelist ? `${whitelistInfo.valid.length} 个地址 / ${mintParams.whiteLimit.toString()} 份` : '未开启'],
       ],
     });
   }
@@ -1771,7 +1798,7 @@ function App() {
       },
       setAccEachLimit: {
         title: '更新单次 Mint 上限',
-        description: '这次会把本次 Mint 份数作为单次交易上限写入合约。',
+        description: '这次会把单次 Mint 上限写入合约。',
         receiver: MINT_CONTRACT,
         data: encodeUintCall(MINT_SELECTORS.setAccEachLimit, nextAccEachLimit),
         summary: [['单次上限', `${nextAccEachLimit.toString()} 份`]],
@@ -2322,6 +2349,13 @@ function LaunchWorkbench({
     chainInfo.amountPerUnits > 0n ? formatUnits(chainInfo.amountPerUnits, chainInfo.tokenDecimals, 4) : form.tokensPerMint;
   const mintProgress = chainInfo.mintLimit ? `${chainInfo.minted}/${chainInfo.mintLimit}` : `${chainInfo.minted || 0}`;
   const mintParams = getFairMintParams(form);
+  const selectedMintPlaybook = form.whitelist ? 'whitelist' : 'public';
+
+  function chooseMintPlaybook(playbook) {
+    update('templateId', 'fair-mint');
+    update('whitelist', playbook.whitelist);
+    update('priceCurve', playbook.priceCurve);
+  }
 
   return (
     <section className="section-panel launch-panel" id="launch">
@@ -2356,24 +2390,44 @@ function LaunchWorkbench({
               <FormField label="项目归属钱包">
                 <input value={form.owner} onChange={(event) => update('owner', event.target.value)} placeholder={wallet.address || '0x...'} />
               </FormField>
-              <FormField label="合约模板" wide>
-                <div className="template-picker">
-                  {templates
-                    .filter((template) => template.deployable)
-                    .filter((template) => (form.mode === 'mint' ? template.id === 'fair-mint' : template.id !== 'fair-mint'))
-                    .map((template) => (
-                    <button
-                      className={form.templateId === template.id ? 'active' : ''}
-                      key={template.id}
-                      onClick={() => update('templateId', template.id)}
-                      type="button"
-                    >
-                      <span>{template.name}</span>
-                      <small>{template.tag}</small>
-                    </button>
-                  ))}
-                </div>
-              </FormField>
+              {form.mode === 'mint' ? (
+                <FormField label="Mint玩法" wide>
+                  <div className="template-picker mint-playbook-picker">
+                    {mintPlaybooks.map((playbook) => (
+                      <button
+                        className={selectedMintPlaybook === playbook.id ? 'active' : ''}
+                        key={playbook.id}
+                        onClick={() => chooseMintPlaybook(playbook)}
+                        type="button"
+                      >
+                        <span>{playbook.name}</span>
+                        <small>{playbook.tag}</small>
+                        <em>{playbook.text}</em>
+                      </button>
+                    ))}
+                  </div>
+                  <small className="field-hint">底层合约：公平启动模板 · 模板ID 20</small>
+                </FormField>
+              ) : (
+                <FormField label="合约模板" wide>
+                  <div className="template-picker">
+                    {templates
+                      .filter((template) => template.deployable)
+                      .filter((template) => template.id !== 'fair-mint')
+                      .map((template) => (
+                      <button
+                        className={form.templateId === template.id ? 'active' : ''}
+                        key={template.id}
+                        onClick={() => update('templateId', template.id)}
+                        type="button"
+                      >
+                        <span>{template.name}</span>
+                        <small>{template.tag}</small>
+                      </button>
+                    ))}
+                  </div>
+                </FormField>
+              )}
               <FormField label="Pepe风格Logo" wide>
                 <div className="logo-uploader">
                   <label>
@@ -2403,10 +2457,15 @@ function LaunchWorkbench({
                   <FormField label="Mint 总份数">
                     <input value={form.mintSlots} onChange={(event) => update('mintSlots', event.target.value)} inputMode="decimal" />
                   </FormField>
+                  {form.whitelist && (
+                    <FormField label="白名单总份数">
+                      <input value={form.whiteMintSlots} onChange={(event) => update('whiteMintSlots', event.target.value)} inputMode="decimal" />
+                    </FormField>
+                  )}
                   <FormField label="每钱包上限">
                     <input value={form.maxPerWallet} onChange={(event) => update('maxPerWallet', event.target.value)} inputMode="decimal" />
                   </FormField>
-                  <FormField label="本次 Mint 份数">
+                  <FormField label="单次 Mint 上限">
                     <input
                       min="1"
                       type="number"
@@ -2608,7 +2667,7 @@ function LaunchWorkbench({
                 {form.whitelist && (
                   <div className="whitelist-summary">
                     <LockKeyhole size={17} />
-                    白名单已开启：{whitelistInfo.valid.length} 个有效地址
+                    白名单已开启：{whitelistInfo.valid.length} 个有效地址 / {mintParams.whiteLimit.toString()} 份
                     {whitelistInfo.invalid.length > 0 && `，${whitelistInfo.invalid.length} 个地址需修正`}
                   </div>
                 )}
@@ -2636,7 +2695,7 @@ function LaunchWorkbench({
             ) : (
               <button className="primary" type="submit">
                 <Coins size={16} />
-                {form.mode === 'mint' ? '创建Mint池' : '登上擂台'}
+                {form.mode === 'mint' ? (form.whitelist ? '创建白名单Mint池' : '创建公开Mint池') : '登上擂台'}
               </button>
             )}
           </div>
@@ -2659,7 +2718,7 @@ function LaunchWorkbench({
               <MiniMetric label="买/卖税" value={`${form.buyTax}% / ${form.sellTax}%`} />
               <MiniMetric label="尾号定制" value={form.vanitySuffix ? `...${normalizeHexSuffix(form.vanitySuffix)}` : '随机地址'} />
               <MiniMetric label="Owner" value={form.mode === 'mint' ? 'Token无Owner / Mint池归项目方' : form.renounceOwner ? '部署后抛弃' : '项目方保留'} />
-              <MiniMetric label="白名单" value={form.whitelist ? `${whitelistInfo.valid.length} 个地址` : '未开启'} />
+              <MiniMetric label="白名单" value={form.whitelist ? `${whitelistInfo.valid.length} 地址 / ${mintParams.whiteLimit.toString()} 份` : '未开启'} />
             </div>
             <button className="secondary full" onClick={() => copyText(DEAD_ADDRESS, '黑洞地址')} type="button">
               <Copy size={16} />
@@ -2678,7 +2737,7 @@ function LaunchWorkbench({
             {form.whitelist && form.mode === 'mint' && <span className="status-pill green">白名单创建时写入新池</span>}
             <button className="primary full submit-btn" type="submit">
               <Coins size={16} />
-              {form.mode === 'mint' ? '创建Mint池' : '登上擂台'}
+              {form.mode === 'mint' ? (form.whitelist ? '创建白名单Mint池' : '创建公开Mint池') : '登上擂台'}
             </button>
           </Panel>
 
@@ -2690,7 +2749,7 @@ function LaunchWorkbench({
             setLaunchStep={setLaunchStep}
           />
 
-          <Panel title={form.mode === 'mint' ? '白名单Mint池' : '发币工厂参数'} icon={Coins}>
+          <Panel title={form.mode === 'mint' ? (form.whitelist ? '白名单Mint池' : '公开Mint池') : '发币工厂参数'} icon={Coins}>
             {form.mode === 'mint' ? (
               <>
                 <div className="chain-status-row">
@@ -2703,9 +2762,10 @@ function LaunchWorkbench({
                   <MiniMetric label="Mint单价" value={`${formatBnbFromWei(mintParams.price, 8)} BNB`} />
                   <MiniMetric label="每份获得" value={`${formatUnits(mintParams.amountPerMint, 18, 4)} ${form.symbol || 'PEPE'}`} />
                   <MiniMetric label="Mint总份数" value={`${mintParams.mintLimit.toString()} 份`} />
+                  {form.whitelist && <MiniMetric label="白名单总份数" value={`${mintParams.whiteLimit.toString()} 份`} />}
                   <MiniMetric label="每钱包上限" value={`${mintParams.accMintLimit.toString()} 份`} />
                   <MiniMetric label="单次上限" value={`${mintParams.accEachLimit.toString()} 份`} />
-                  <MiniMetric label="白名单" value={form.whitelist ? `${whitelistInfo.valid.length} 个地址` : '不启用'} />
+                  <MiniMetric label="白名单地址" value={form.whitelist ? `${whitelistInfo.valid.length} 个` : '不启用'} />
                   <MiniMetric label="毕业进池" value={`${formatUnits(mintParams.liquidityTokenAmount, 18, 4)} ${form.symbol || 'PEPE'}`} />
                   <MiniMetric label="Mint池Owner" value={form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '创建钱包'} />
                   <MiniMetric label="Token权限" value="无Owner" />
@@ -2884,12 +2944,13 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
         ))}
       </div>
       <div className="preview-lines factory-lines">
-        <MiniMetric label="新币模式" value={fairMintMode ? '白名单Mint池' : '直接发币'} />
+        <MiniMetric label="新币模式" value={fairMintMode ? (form.whitelist ? '白名单Mint池' : '公开Mint池') : '直接发币'} />
         <MiniMetric label="模板协议" value={dividendMode ? '持币分红平台币' : selectedTemplate.name} />
         <MiniMetric label="模板ID" value={getTemplateId(form.templateId) ? String(getTemplateId(form.templateId)) : '暂未开放'} />
         {dividendMode && <MiniMetric label="分红币" value={shortAddress(TOKEN_CONTRACT)} />}
         <MiniMetric label="创建者" value={creator ? shortAddress(creator) : '连接后填入'} />
         <MiniMetric label={fairMintMode ? 'Mint单价' : '初始LP'} value={fairMintMode ? `${formatBnbFromWei(mintParams.price, 8)} BNB` : `${formatBnbFromWei(liquidityParams.bnbAmount, 8)} BNB`} />
+        {fairMintMode && form.whitelist && <MiniMetric label="白名单份数" value={`${mintParams.whiteLimit.toString()} 份`} />}
         <MiniMetric label={fairMintMode ? '毕业进池代币' : '进池代币'} value={fairMintMode ? `${formatUnits(mintParams.liquidityTokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}` : `${formatUnits(liquidityParams.tokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`} />
         <MiniMetric label="LP接收" value={shortAddress(DEAD_ADDRESS)} />
         <MiniMetric label="尾号" value={form.vanitySuffix ? `...${normalizeHexSuffix(form.vanitySuffix)}` : '可选'} />

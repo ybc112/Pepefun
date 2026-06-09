@@ -1149,6 +1149,24 @@ legend {
   font-size: 12px;
 }
 
+.mint-playbook-picker {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mint-playbook-picker button {
+  min-height: 96px;
+  align-content: start;
+  justify-items: start;
+  text-align: left;
+}
+
+.mint-playbook-picker em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.45;
+}
+
 .logo-uploader {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 78px;
