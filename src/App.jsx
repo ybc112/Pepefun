@@ -24,12 +24,13 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react';
+import { Contract, JsonRpcProvider, getCreate2Address, keccak256, solidityPackedKeccak256, toUtf8Bytes } from 'ethers';
 import pepeArenaArt from './assets/pepe-arena.svg';
 
 const STORAGE_KEY = 'pepe-launch-arena-draft-v5';
 const LAUNCH_FEE_BNB = '0.005';
 const PAYMENT_RECEIVER = import.meta.env.VITE_PAYMENT_RECEIVER || '';
-const FACTORY_CONTRACT = import.meta.env.VITE_FACTORY_CONTRACT || '0x7aD123deaf587cF6763Ef6043A453a0D5b852F8d';
+const FACTORY_CONTRACT = import.meta.env.VITE_FACTORY_CONTRACT || '0x9c7DA60DfC7E2ef82014b347Db24BcE9fb1faF08';
 const MINT_CONTRACT = import.meta.env.VITE_MINT_CONTRACT || '0x17877D1e85390937c461b0A7886Ad75bAAC9F1dA';
 const TOKEN_CONTRACT = import.meta.env.VITE_TOKEN_CONTRACT || '0xb3b2afb0de33d4d80a20839662bc99c6b360eeee';
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
@@ -70,9 +71,21 @@ const ERC20_SELECTORS = {
   approve: '0x095ea7b3',
 };
 const FACTORY_SELECTORS = {
-  createFixedSupplyToken: '0xb08e7f1e',
-  createDividendToken: '0x58ed0156',
+  deployFromTemplate: '0xd086c333',
   creationFee: '0xdce0b4e4',
+};
+const FACTORY_VIEW_ABI = [
+  'function getDeployments(uint256 offset,uint256 limit) view returns (tuple(address creator,address token,address pair,uint8 templateId,bytes32 salt,uint256 valuePaid,uint256 liquidity,uint64 blockNumber,uint64 createdAt,bytes32 metadataHash)[])',
+  'function getDeploymentsCount() view returns (uint256)',
+  'function templateInitCodeHash(uint8 templateId, tuple(string name,string symbol,uint256 totalSupply,address receiver) tokenParams, tuple(uint256 tokenAmount,uint256 bnbAmount,uint256 minTokenAmount,uint256 minBnbAmount,uint256 deadline,bool enabled) liquidityParams, tuple(address rewardToken,address feeReceiver,uint16 buyFeeBps,uint16 sellFeeBps,bool renounceOwnerAfterCreate) dividendParams) view returns (bytes32)',
+];
+const TEMPLATE_IDS = {
+  standard: 1,
+  'zero-tax': 2,
+  'blackhole-lp': 3,
+  'no-owner': 4,
+  reflection: 10,
+  'dividend-token': 10,
 };
 const DEFAULT_CHAIN_INFO = {
   loading: true,
@@ -138,6 +151,7 @@ const templates = [
     name: '标准BEP20模板',
     tag: '经典稳定',
     text: '固定总量、标准转账、BscScan 公开验证，社区最熟悉。',
+    deployable: true,
   },
   {
     id: 'burn',
@@ -150,6 +164,7 @@ const templates = [
     name: '反射分红模板',
     tag: '持币生平台币',
     text: '交易税累积分红池，换成平台币后持币地址可按比例领取。',
+    deployable: true,
   },
   {
     id: 'fair-mint',
@@ -162,6 +177,7 @@ const templates = [
     name: '无Owner模板',
     tag: '部署即放弃',
     text: '部署后抛弃所有权，后续参数不能被随意修改。',
+    deployable: true,
   },
   {
     id: 'anti-whale',
@@ -186,18 +202,21 @@ const templates = [
     name: '黑洞底池模板',
     tag: 'LP转dead',
     text: '初始或 Mint 累积 LP 自动转入 0x...dead。',
+    deployable: true,
   },
   {
     id: 'zero-tax',
     name: '零税公平模板',
     tag: '纯净交易',
     text: '买卖税为 0，适合强调简单、透明、公平的 meme。',
+    deployable: true,
   },
   {
     id: 'dividend-token',
     name: '指定币分红模板',
     tag: '多币分红',
     text: '支持 BNB 或指定代币分红，适合社区运营玩法。',
+    deployable: true,
   },
   {
     id: 'community',
@@ -231,10 +250,10 @@ const flowSteps = [
 ];
 
 const factoryFlow = [
-  ['01', '部署 Token', '按名称、符号、总量创建标准 BEP20，源码公开可验证。'],
-  ['02', 'LP进黑洞', '初始池子由 Factory 加入 PancakeSwap，LP 直接发到 dead。'],
-  ['03', '权限丢掉', '新币无 Owner；Mint 池可在创建时写入名单并直接 renounce。'],
-  ['04', '链上输出', '输出 Token、Mint 池、BscScan、PancakeSwap 和 dead 证明。'],
+  ['01', '选择模板', '按模板 ID 走 deployFromTemplate，未接入模板不会伪装成可部署。'],
+  ['02', '预测地址', 'CREATE2 salt 可预测 Token 地址，也可强制校验尾号。'],
+  ['03', 'LP进黑洞', '初始池子由 Factory 加入 PancakeSwap，LP 直接发到 dead。'],
+  ['04', '链上记录', 'Token、Creator、Pair、Salt、模板 ID 全部写入分页记录。'],
 ];
 
 const launchWizardSteps = [
@@ -273,6 +292,8 @@ const defaultForm = {
   whitelist: false,
   whitelistAddresses: '',
   mintQuantity: '1',
+  vanitySuffix: '',
+  vanitySalt: '',
   autoVerify: true,
   logoData: '',
   note: '',
@@ -569,39 +590,31 @@ function encodeDividendParamsTuple({ rewardToken, feeReceiver, buyFeeBps, sellFe
   ].join('');
 }
 
-function encodeCreateFixedSupplyTokenCall(tokenParams, liquidityParams, metadataURI) {
-  const tokenTuple = encodeTokenParamsTuple(tokenParams);
-  const liquidityTuple = encodeLiquidityParamsTuple(liquidityParams);
-  const metadataData = encodeAbiString(metadataURI);
-  const tokenOffset = 8n * 32n;
-  const metadataOffset = tokenOffset + BigInt(tokenTuple.length / 2);
-
+function encodeDeployOptionsTuple({ templateId, salt, requiredSuffix, suffixLength, enforceSuffix }) {
   return [
-    FACTORY_SELECTORS.createFixedSupplyToken,
-    pad64(tokenOffset.toString(16)),
-    liquidityTuple,
-    pad64(metadataOffset.toString(16)),
-    tokenTuple,
-    metadataData,
+    pad64(BigInt(templateId).toString(16)),
+    pad64(salt),
+    pad64(requiredSuffix.toString(16)),
+    pad64(BigInt(suffixLength).toString(16)),
+    pad64(enforceSuffix ? '1' : '0'),
   ].join('');
 }
 
-function encodeCreateDividendTokenCall(tokenParams, liquidityParams, dividendParams, metadataURI) {
+function encodeDeployFromTemplateCall(tokenParams, liquidityParams, dividendParams, deployOptions, metadataHash) {
   const tokenTuple = encodeTokenParamsTuple(tokenParams);
   const liquidityTuple = encodeLiquidityParamsTuple(liquidityParams);
   const dividendTuple = encodeDividendParamsTuple(dividendParams);
-  const metadataData = encodeAbiString(metadataURI);
-  const tokenOffset = 13n * 32n;
-  const metadataOffset = tokenOffset + BigInt(tokenTuple.length / 2);
+  const deployOptionsTuple = encodeDeployOptionsTuple(deployOptions);
+  const tokenOffset = 18n * 32n;
 
   return [
-    FACTORY_SELECTORS.createDividendToken,
+    FACTORY_SELECTORS.deployFromTemplate,
     pad64(tokenOffset.toString(16)),
     liquidityTuple,
     dividendTuple,
-    pad64(metadataOffset.toString(16)),
+    deployOptionsTuple,
+    pad64(metadataHash),
     tokenTuple,
-    metadataData,
   ].join('');
 }
 
@@ -633,14 +646,55 @@ function isDividendTemplate(templateId) {
   return templateId === 'reflection' || templateId === 'dividend-token';
 }
 
+function getTemplateId(templateId) {
+  return TEMPLATE_IDS[templateId] || 0;
+}
+
+function templateLabelById(templateId) {
+  const found = templates.find((item) => getTemplateId(item.id) === Number(templateId));
+  return found?.name || `模板 ${templateId}`;
+}
+
+function isDeployableTemplate(templateId) {
+  return Boolean(getTemplateId(templateId));
+}
+
 function percentToBps(value) {
   return Math.max(0, Math.round(numberValue(value) * 100));
 }
 
-function getMetadataURI(form) {
-  const website = String(form.website || '').trim();
-  if (/^https?:\/\//i.test(website)) return website;
-  return '';
+function normalizeHexSuffix(value) {
+  return String(value || '')
+    .replace(/^0x/i, '')
+    .replace(/[^0-9a-f]/gi, '')
+    .toLowerCase()
+    .slice(0, 10);
+}
+
+function suffixToUint160(value) {
+  const suffix = normalizeHexSuffix(value);
+  return suffix ? BigInt(`0x${suffix}`) : 0n;
+}
+
+function saltToBytes32(value, seed = '') {
+  const clean = String(value || '').trim();
+  if (/^0x[0-9a-fA-F]{64}$/.test(clean)) return clean;
+  if (clean) return keccak256(toUtf8Bytes(clean));
+  return keccak256(toUtf8Bytes(`${seed}-${Date.now()}-${Math.random()}`));
+}
+
+function getMetadataHash(form) {
+  const metadata = JSON.stringify({
+    website: String(form.website || '').trim(),
+    x: String(form.x || '').trim(),
+    telegram: String(form.telegram || '').trim(),
+    note: String(form.note || '').trim(),
+  });
+  return keccak256(toUtf8Bytes(metadata));
+}
+
+function getFactoryProvider() {
+  return new JsonRpcProvider(BSC_PUBLIC_RPCS[0]);
 }
 
 async function publicRpcBatch(calls) {
@@ -750,6 +804,8 @@ function App() {
   const [toast, setToast] = useState('');
   const [busy, setBusy] = useState(false);
   const [lastResult, setLastResult] = useState(null);
+  const [factoryRecords, setFactoryRecords] = useState([]);
+  const [vanityPreview, setVanityPreview] = useState('');
   const [chainInfo, setChainInfo] = useState(DEFAULT_CHAIN_INFO);
   const [chainRefresh, setChainRefresh] = useState(0);
 
@@ -816,6 +872,10 @@ function App() {
       provider?.removeListener?.('accountsChanged', handleAccounts);
       provider?.removeListener?.('chainChanged', handleChain);
     };
+  }, []);
+
+  useEffect(() => {
+    refreshFactoryRecords(true);
   }, []);
 
   useEffect(() => {
@@ -960,6 +1020,96 @@ function App() {
     notify('正在刷新链上参数');
   }
 
+  async function refreshFactoryRecords(silent = false) {
+    if (!isAddress(FACTORY_CONTRACT)) return;
+    try {
+      const factory = new Contract(FACTORY_CONTRACT, FACTORY_VIEW_ABI, getFactoryProvider());
+      const count = Number(await factory.getDeploymentsCount());
+      const limit = 12;
+      const offset = Math.max(0, count - limit);
+      const rows = await factory.getDeployments(offset, limit);
+      setFactoryRecords(
+        rows
+          .map((item) => ({
+            creator: item.creator,
+            token: item.token,
+            pair: item.pair,
+            templateId: Number(item.templateId),
+            salt: item.salt,
+            valuePaid: item.valuePaid,
+            liquidity: item.liquidity,
+            blockNumber: Number(item.blockNumber),
+            createdAt: Number(item.createdAt),
+            metadataHash: item.metadataHash,
+          }))
+          .reverse(),
+      );
+      if (!silent) notify('已刷新链上发射记录');
+    } catch (error) {
+      if (!silent) notify(error.message || '发射记录读取失败');
+    }
+  }
+
+  async function mineVanitySalt() {
+    const suffix = normalizeHexSuffix(form.vanitySuffix);
+    if (!suffix) {
+      notify('请先填写想要的合约尾号，例如 8888');
+      return;
+    }
+    if (suffix.length > 6) {
+      notify('页面最多帮你生成 6 位尾号；更长尾号建议用脚本离线找 salt');
+      return;
+    }
+    const { address } = await ensureWallet();
+    const templateId = getTemplateId(form.templateId);
+    if (!templateId) {
+      notify('当前模板还没有接入 V3 工厂');
+      return;
+    }
+
+    const receiver = form.owner && isAddress(form.owner) ? form.owner : address;
+    const tokenParams = [form.tokenName.trim() || 'Pepe Fighter', cleanSymbol(form.symbol) || 'PEPE', decimalToUnits(form.totalSupply, 18), receiver];
+    const liquidityParams = getFixedLaunchLiquidity(form);
+    const liquidityTuple = [
+      liquidityParams.tokenAmount,
+      liquidityParams.bnbAmount,
+      liquidityParams.minTokenAmount,
+      liquidityParams.minBnbAmount,
+      liquidityParams.deadline,
+      liquidityParams.enabled,
+    ];
+    const dividendTuple = [
+      isDividendTemplate(form.templateId) ? TOKEN_CONTRACT : ZERO_ADDRESS,
+      ZERO_ADDRESS,
+      isDividendTemplate(form.templateId) ? percentToBps(form.buyTax) : 0,
+      isDividendTemplate(form.templateId) ? percentToBps(form.sellTax) : 0,
+      form.renounceOwner,
+    ];
+
+    setBusy(true);
+    try {
+      const factory = new Contract(FACTORY_CONTRACT, FACTORY_VIEW_ABI, getFactoryProvider());
+      const initCodeHash = await factory.templateInitCodeHash(templateId, tokenParams, liquidityTuple, dividendTuple);
+      const max = Math.min(250000, Math.max(5000, 16 ** Math.min(suffix.length, 5)));
+      for (let i = 0; i < max; i++) {
+        const rawSalt = keccak256(toUtf8Bytes(`${address}-${suffix}-${Date.now()}-${i}`));
+        const factorySalt = solidityPackedKeccak256(['address', 'bytes32'], [address, rawSalt]);
+        const predicted = getCreate2Address(FACTORY_CONTRACT, factorySalt, initCodeHash);
+        if (predicted.toLowerCase().endsWith(suffix)) {
+          update('vanitySalt', rawSalt);
+          setVanityPreview(predicted);
+          notify(`已生成匹配尾号 ${suffix} 的 salt`);
+          return;
+        }
+      }
+      notify('这轮没有找到匹配 salt，请再点一次生成');
+    } catch (error) {
+      notify(error.message || '尾号 salt 生成失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function navigateToPage(page) {
     if (!navItems.some((item) => item.id === page)) return;
     setActivePage(page);
@@ -1045,20 +1195,24 @@ function App() {
       totalSupply,
       receiver,
     };
-    const data = isDividendTemplate(form.templateId)
-      ? encodeCreateDividendTokenCall(
-          tokenParams,
-          liquidityParams,
-          {
-            rewardToken: TOKEN_CONTRACT,
-            feeReceiver: ZERO_ADDRESS,
-            buyFeeBps: percentToBps(form.buyTax),
-            sellFeeBps: percentToBps(form.sellTax),
-            renounceOwnerAfterCreate: form.renounceOwner,
-          },
-          getMetadataURI(form),
-        )
-      : encodeCreateFixedSupplyTokenCall(tokenParams, liquidityParams, getMetadataURI(form));
+    const templateId = getTemplateId(form.templateId);
+    const suffix = normalizeHexSuffix(form.vanitySuffix);
+    const salt = saltToBytes32(form.vanitySalt, `${address}-${form.symbol}-${form.tokenName}`);
+    const dividendParams = {
+      rewardToken: isDividendTemplate(form.templateId) ? TOKEN_CONTRACT : ZERO_ADDRESS,
+      feeReceiver: ZERO_ADDRESS,
+      buyFeeBps: isDividendTemplate(form.templateId) ? percentToBps(form.buyTax) : 0,
+      sellFeeBps: isDividendTemplate(form.templateId) ? percentToBps(form.sellTax) : 0,
+      renounceOwnerAfterCreate: form.renounceOwner,
+    };
+    const deployOptions = {
+      templateId,
+      salt,
+      requiredSuffix: suffixToUint160(suffix),
+      suffixLength: suffix.length,
+      enforceSuffix: suffix.length > 0,
+    };
+    const data = encodeDeployFromTemplateCall(tokenParams, liquidityParams, dividendParams, deployOptions, getMetadataHash(form));
     const expectedValue =
       currentCheckout.valueWei && currentCheckout.valueWei !== '0'
         ? BigInt(currentCheckout.valueWei)
@@ -1082,6 +1236,7 @@ function App() {
       receiver: FACTORY_CONTRACT,
       purpose: isDividendTemplate(form.templateId) ? 'factoryCreateDividend' : 'factoryCreate',
       tokenAddress: '',
+      salt,
       actionLabel: isDividendTemplate(form.templateId) ? '创建分红新币' : '创建新币',
     };
   }
@@ -1209,6 +1364,11 @@ function App() {
     if (!form.tokenName.trim()) return '请填写代币名称';
     if (!form.symbol.trim()) return '请填写代币符号';
     if (numberValue(form.totalSupply) <= 0) return '代币总量必须大于 0';
+    if (!isDeployableTemplate(form.templateId)) return '当前模板还没有接入 V3 工厂，请选择已开放部署的模板';
+    if (normalizeHexSuffix(form.vanitySuffix).length !== String(form.vanitySuffix || '').replace(/^0x/i, '').replace(/\s+/g, '').length) {
+      return '尾号只能填写 0-9 / a-f 的十六进制字符';
+    }
+    if (normalizeHexSuffix(form.vanitySuffix).length > 6) return '页面生成盐值建议尾号不超过 6 位，合约最高支持 10 位';
     if (form.owner.trim() && !isAddress(form.owner)) return '项目归属钱包地址格式不正确';
     if (numberValue(form.buyTax) < 0 || numberValue(form.sellTax) < 0) return '税率不能小于 0';
     if (isDividendTemplate(form.templateId)) {
@@ -1333,6 +1493,8 @@ function App() {
     const whitelistInfo = parseWhitelist(form.whitelistAddresses);
     const liquidityParams = getFixedLaunchLiquidity(form);
     const dividendMode = isDividendTemplate(form.templateId);
+    const templateId = getTemplateId(form.templateId);
+    const suffix = normalizeHexSuffix(form.vanitySuffix);
     const totalValueWei = factoryReady ? factoryFeeWei + liquidityParams.bnbAmount : 0n;
     setCheckout({
       type: factoryReady ? 'factoryCreate' : 'factoryPlan',
@@ -1348,6 +1510,8 @@ function App() {
         ['工厂合约', factoryReady ? shortAddress(FACTORY_CONTRACT) : '待部署'],
         ['发射模式', selectedMode.title],
         ['合约模板', selectedTemplate.name],
+        ['模板ID', templateId ? String(templateId) : '未接入'],
+        ['工厂方法', 'deployFromTemplate'],
         ['创建方法', dividendMode ? '持币分红平台币' : '标准固定总量'],
         ['代币总量', formatNumber(form.totalSupply, 0)],
         ['创建费', factoryReady ? `${formatBnbFromWei(factoryFeeWei, 8)} BNB` : '部署后链上读取'],
@@ -1360,6 +1524,8 @@ function App() {
             ]
           : []),
         ['LP接收', shortAddress(DEAD_ADDRESS)],
+        ['尾号定制', suffix ? `...${suffix}` : '未指定'],
+        ['Salt', form.vanitySalt ? shortAddress(saltToBytes32(form.vanitySalt)) : '确认时自动生成'],
         ['权限', 'Token无Owner，LP已黑洞'],
         ['接收钱包', form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '确认时连接'],
         ['白名单', form.whitelist ? `${whitelistInfo.valid.length} 个地址` : '未开启'],
@@ -1559,6 +1725,7 @@ function App() {
       setLastResult(result);
       setCheckout(null);
       setChainRefresh((current) => current + 1);
+      if (checkout.type === 'factoryCreate') refreshFactoryRecords(true);
       notify(checkout.type === 'whitelist' ? '白名单交易已发出，等待链上确认。' : '真实钱包交易已发出，等待链上确认。');
       setActivePage('launch');
       setLaunchStep('preview');
@@ -1627,6 +1794,10 @@ function App() {
               refreshChainInfo={refreshChainInfo}
               openWhitelistCheckout={openWhitelistCheckout}
               openContractActionCheckout={openContractActionCheckout}
+              mineVanitySalt={mineVanitySalt}
+              vanityPreview={vanityPreview}
+              factoryRecords={factoryRecords}
+              refreshFactoryRecords={refreshFactoryRecords}
               busy={busy}
             />
           )}
@@ -1804,7 +1975,7 @@ function ArenaVisual() {
 
 function MetricStrip() {
   const metrics = [
-    [FileCheck2, '合约模板', '10+'],
+    [FileCheck2, 'V3模板', `${templates.filter((item) => item.deployable).length}个`],
     [Gauge, '发射模式', '2种'],
     [LockKeyhole, '底池规则', 'dead黑洞'],
     [Wallet, '钱包网络', 'BSC主网'],
@@ -1876,7 +2047,7 @@ function TemplateSection({ selectedTemplate, selectTemplate }) {
       <SectionHead
         eyebrow="Contract Templates"
         title="多种模板协议，像选皮肤一样发币"
-        text="BSC 链 10+ 成熟模板，覆盖标准、燃烧、分红、公平 Mint、无 Owner、防巨鲸、黑洞底池等常用玩法。"
+        text="当前 V3 已接入标准、零税、黑洞底池、无 Owner 和平台币分红模板；规划模板会标记为规划中，不会伪装成可部署。"
       />
       <div className="template-grid showcase">
         {templates.map((template) => (
@@ -1890,6 +2061,7 @@ function TemplateSection({ selectedTemplate, selectTemplate }) {
               <small>{template.tag}</small>
               <b>{template.name}</b>
               <em>{template.text}</em>
+              <i>{template.deployable ? 'V3已接入' : '规划中'}</i>
             </span>
             {selectedTemplate.id === template.id && <CheckCircle2 size={18} />}
           </button>
@@ -1958,6 +2130,10 @@ function LaunchWorkbench({
   refreshChainInfo,
   openWhitelistCheckout,
   openContractActionCheckout,
+  mineVanitySalt,
+  vanityPreview,
+  factoryRecords,
+  refreshFactoryRecords,
   busy,
 }) {
   const currentStepIndex = launchStepIndex(launchStep);
@@ -2006,7 +2182,7 @@ function LaunchWorkbench({
               </FormField>
               <FormField label="合约模板" wide>
                 <div className="template-picker">
-                  {templates.slice(0, 8).map((template) => (
+                  {templates.filter((template) => template.deployable).map((template) => (
                     <button
                       className={form.templateId === template.id ? 'active' : ''}
                       key={template.id}
@@ -2104,6 +2280,27 @@ function LaunchWorkbench({
               </FormField>
               <FormField label="开始时间">
                 <input value={form.startTime} onChange={(event) => update('startTime', event.target.value)} placeholder="立即 / 指定时间" />
+              </FormField>
+              <FormField label="合约尾号">
+                <input
+                  value={form.vanitySuffix}
+                  onChange={(event) => update('vanitySuffix', normalizeHexSuffix(event.target.value))}
+                  placeholder="例如 8888"
+                />
+              </FormField>
+              <FormField label="CREATE2 Salt">
+                <div className="vanity-tools">
+                  <input
+                    value={form.vanitySalt}
+                    onChange={(event) => update('vanitySalt', event.target.value)}
+                    placeholder="不填则自动生成"
+                  />
+                  <button className="secondary" disabled={busy || !form.vanitySuffix} onClick={mineVanitySalt} type="button">
+                    <Gauge size={15} />
+                    生成尾号Salt
+                  </button>
+                </div>
+                {vanityPreview && <small className="field-hint">预测地址：{shortAddress(vanityPreview)}，尾号已匹配</small>}
               </FormField>
               <ToggleField
                 checked
@@ -2261,6 +2458,7 @@ function LaunchWorkbench({
               <MiniMetric label="Mint募集上限" value={`${formatBnb(mintRaise)} BNB`} />
               <MiniMetric label="黑洞地址" value={shortAddress(DEAD_ADDRESS)} />
               <MiniMetric label="买/卖税" value={`${form.buyTax}% / ${form.sellTax}%`} />
+              <MiniMetric label="尾号定制" value={form.vanitySuffix ? `...${normalizeHexSuffix(form.vanitySuffix)}` : '随机地址'} />
               <MiniMetric label="Owner" value={form.renounceOwner ? '部署后抛弃' : '项目方保留'} />
               <MiniMetric label="白名单" value={form.whitelist ? `${whitelistInfo.valid.length} 个地址` : '未开启'} />
             </div>
@@ -2468,6 +2666,40 @@ function LaunchWorkbench({
               />
             )}
           </Panel>
+
+          <Panel title="发射记录" icon={ListChecks}>
+            <div className="record-head">
+              <span className="status-pill green">链上分页</span>
+              <button className="secondary" onClick={() => refreshFactoryRecords(false)} type="button">
+                <Timer size={15} />
+                刷新
+              </button>
+            </div>
+            {factoryRecords.length ? (
+              <div className="launch-records">
+                {factoryRecords.map((item) => (
+                  <article className="launch-record" key={`${item.token}-${item.blockNumber}`}>
+                    <span>
+                      <b>{templateLabelById(item.templateId)}</b>
+                      <em>{item.createdAt ? new Date(item.createdAt * 1000).toLocaleString('zh-CN', { hour12: false }) : `Block ${item.blockNumber}`}</em>
+                    </span>
+                    <div>
+                      <a href={addressUrl(item.token)} target="_blank" rel="noreferrer">
+                        {shortAddress(item.token)}
+                      </a>
+                      {item.pair && !sameAddress(item.pair, ZERO_ADDRESS) && (
+                        <a href={pancakeUrl(item.token)} target="_blank" rel="noreferrer">
+                          Pancake
+                        </a>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <EmptyInline icon={Timer} title="暂无链上记录" text="V3 工厂部署后的新发射会从 getDeployments 分页读取出来。" />
+            )}
+          </Panel>
         </aside>
       </form>
     </section>
@@ -2484,8 +2716,9 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
   return (
     <Panel title="自助发币工厂" icon={Settings}>
       <div className="factory-status">
-        <span className={`status-pill ${factoryReady ? 'green' : 'cyan'}`}>{factoryReady ? '工厂已部署' : '合约草案已准备'}</span>
-        <span className="status-pill green">支持一键新币</span>
+        <span className={`status-pill ${factoryReady ? 'green' : 'cyan'}`}>{factoryReady ? 'V3工厂已部署' : 'V3工厂待部署'}</span>
+        <span className="status-pill green">模板部署</span>
+        <span className="status-pill green">CREATE2尾号</span>
         <span className="status-pill green">LP进dead</span>
       </div>
       <div className="factory-flow">
@@ -2500,11 +2733,13 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
       <div className="preview-lines factory-lines">
         <MiniMetric label="新币模式" value={form.mode === 'direct' ? '直接发币' : '公平Mint池'} />
         <MiniMetric label="模板协议" value={dividendMode ? '持币分红平台币' : selectedTemplate.name} />
+        <MiniMetric label="模板ID" value={getTemplateId(form.templateId) ? String(getTemplateId(form.templateId)) : '未接入'} />
         {dividendMode && <MiniMetric label="分红币" value={shortAddress(TOKEN_CONTRACT)} />}
         <MiniMetric label="创建者" value={creator ? shortAddress(creator) : '连接后填入'} />
         <MiniMetric label="初始LP" value={`${formatBnbFromWei(liquidityParams.bnbAmount, 8)} BNB`} />
         <MiniMetric label="进池代币" value={`${formatUnits(liquidityParams.tokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`} />
         <MiniMetric label="LP接收" value={shortAddress(DEAD_ADDRESS)} />
+        <MiniMetric label="尾号" value={form.vanitySuffix ? `...${normalizeHexSuffix(form.vanitySuffix)}` : '可选'} />
         <MiniMetric label="权限" value="部署后丢掉" />
       </div>
       <div className="factory-actions">
@@ -2530,7 +2765,7 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
           </a>
         )}
       </div>
-      <p className="factory-note">Factory 会把初始 LP 直接铸到 dead；新币合约不保留 Owner，Mint 池也支持创建后立即丢权限。</p>
+      <p className="factory-note">V3 Factory 使用 deployFromTemplate / deployToken，支持地址预测、尾号校验、超额 BNB 退款、getDeployments / getCreatorTokens / getLaunchedTokens 分页查询。</p>
     </Panel>
   );
 }

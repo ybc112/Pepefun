@@ -832,6 +832,13 @@ textarea:focus {
   line-height: 1.55;
 }
 
+.template-card i {
+  color: var(--lime);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 950;
+}
+
 .template-card svg {
   flex: 0 0 auto;
   color: var(--lime);
@@ -1234,6 +1241,26 @@ legend {
   align-items: center;
 }
 
+.vanity-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.vanity-tools .secondary {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -1400,6 +1427,67 @@ legend {
 
 .factory-note {
   margin: 10px 0 0;
+}
+
+.record-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.record-head .secondary {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.launch-records {
+  display: grid;
+  gap: 8px;
+}
+
+.launch-record {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(218, 255, 138, 0.12);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.launch-record span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.launch-record b,
+.launch-record a {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 950;
+  text-decoration: none;
+}
+
+.launch-record em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.launch-record div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.launch-record a {
+  color: var(--lime);
 }
 
 .launch-summary {
@@ -2082,6 +2170,19 @@ legend {
   .whitelist-tools {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .vanity-tools,
+  .launch-record {
+    grid-template-columns: 1fr;
+  }
+
+  .vanity-tools .secondary {
+    justify-content: center;
+  }
+
+  .launch-record div {
+    justify-content: flex-start;
   }
 
   .whitelist-tools .secondary,

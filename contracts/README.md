@@ -5,11 +5,13 @@ This folder contains the self-service launch factory contracts for BSC.
 ## Contracts
 
 - `PepeLaunchFactory`
-  - Creates a fixed-supply BEP20 token.
-  - Creates a dividend BEP20 token that can swap collected project-token fees into the platform reward token.
+  - Deploys tokens from approved templates through `deployFromTemplate`.
+  - Exposes a guarded `deployToken(bytes32 salt, bytes tokenCreationCode, ...)` path for approved creation-code hashes.
+  - Predicts CREATE2 token addresses and supports suffix checks for vanity tails.
+  - Records launches on-chain with paginated `getDeployments`, `getCreatorTokens`, and `getLaunchedTokens`.
   - Collects a configurable creation fee.
   - Adds optional PancakeSwap V2 liquidity and sends LP tokens directly to `0x...dEaD`.
-  - Emits created token addresses for the frontend.
+  - Refunds unused BNB after liquidity creation.
 
 - `DividendMemeToken`
   - Fixed-supply BEP20-style token with buy/sell fee support.
@@ -44,8 +46,10 @@ This folder contains the self-service launch factory contracts for BSC.
 3. Verify the source code on BscScan.
 4. Connect the deployed factory address to the frontend.
 5. Add frontend ABI encoding for:
-   - `createFixedSupplyToken`
-   - `createDividendToken`
+   - `deployFromTemplate`
+   - `deployToken`
+   - `predictTokenAddress`
+   - `getDeployments`
 
 ## Hardhat Deployment
 
@@ -87,10 +91,10 @@ Or verify manually with the command printed in the deployment record.
 
 ## Notes
 
-Factory V2 deployed on BSC:
+Factory V3 deployed on BSC:
 
-- Address: `0x7aD123deaf587cF6763Ef6043A453a0D5b852F8d`
-- BscScan: `https://bscscan.com/address/0x7aD123deaf587cF6763Ef6043A453a0D5b852F8d#code`
+- Address: `0x9c7DA60DfC7E2ef82014b347Db24BcE9fb1faF08`
+- BscScan: `https://bscscan.com/address/0x9c7DA60DfC7E2ef82014b347Db24BcE9fb1faF08#code`
 - Creation fee: `0.005 BNB`
 
-The frontend encodes `createFixedSupplyToken` and `createDividendToken` for the deployed V2 factory. The standalone `FairMintPool` source remains in this file for review/reference, while the current V2 factory frontend path does not deploy new mint pools.
+The frontend encodes `deployFromTemplate` for the deployed V3 factory. The standalone `FairMintPool` source remains in this file for review/reference, while the current V3 frontend path does not deploy new mint pools.
