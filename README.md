@@ -1,6 +1,6 @@
-# PEPE发射擂台
+# PEPE发射擂台 · BSC版
 
-BSC 版精选发射台前端，使用 Vite + React 构建。
+BSC 版公平 Meme 发射工具前端，使用 Vite + React 构建。页面聚焦 PEPE 青蛙擂台视觉、直接发币、自由 Mint、黑洞底池和真实钱包交易。
 
 ## 本地运行
 
@@ -26,7 +26,7 @@ npm run deploy:cloudflare
 
 ## 环境变量
 
-真实链上支付前需要配置：
+真实链上支付入口由部署环境配置：
 
 ```env
 VITE_PAYMENT_RECEIVER=
