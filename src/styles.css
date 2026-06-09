@@ -232,6 +232,10 @@ textarea:disabled {
   box-shadow: 0 10px 26px rgba(215, 255, 86, 0.14);
 }
 
+.mobile-mint-row {
+  display: none;
+}
+
 .wallet-btn {
   min-height: 40px;
   justify-self: end;
@@ -1837,6 +1841,9 @@ legend {
 @media (max-width: 760px) {
   .topbar {
     position: relative;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
     padding: 11px;
   }
 
@@ -1856,6 +1863,48 @@ legend {
     min-height: 36px;
     padding: 7px 8px;
     font-size: 13px;
+  }
+
+  .mobile-mint-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    min-height: 52px;
+    padding: 8px 12px;
+    border: 1px solid rgba(215, 255, 86, 0.38);
+    border-radius: var(--radius);
+    color: var(--ink);
+    background: linear-gradient(135deg, #f8ffe7, var(--lime) 50%, var(--green));
+    box-shadow: 0 12px 34px rgba(114, 240, 141, 0.18);
+    cursor: pointer;
+    font-weight: 950;
+    text-align: left;
+  }
+
+  .mobile-mint-row span {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .mobile-mint-row b {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 17px;
+  }
+
+  .mobile-mint-row small {
+    overflow: hidden;
+    color: rgba(8, 16, 6, 0.72);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-mint-row svg {
+    flex: 0 0 auto;
   }
 
   .shell {

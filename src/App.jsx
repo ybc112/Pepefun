@@ -805,6 +805,11 @@ function App() {
     setActivePage(page);
   }
 
+  function navigateToMint() {
+    setActivePage('launch');
+    setLaunchStep('preview');
+  }
+
   async function ensureWallet() {
     const provider = getProvider();
     if (!provider?.request) {
@@ -1277,7 +1282,14 @@ function App() {
   return (
     <div className="app">
       <div className="bg-layer" />
-      <Topbar wallet={wallet} activePage={activePage} navigate={navigateToPage} connectWallet={connectWallet} />
+      <Topbar
+        wallet={wallet}
+        activePage={activePage}
+        navigate={navigateToPage}
+        navigateToMint={navigateToMint}
+        connectWallet={connectWallet}
+        chainInfo={chainInfo}
+      />
       <main className="shell page-shell">
         <div className="page-stage">
           {activePage === 'arena' && (
@@ -1337,7 +1349,11 @@ function App() {
   );
 }
 
-function Topbar({ wallet, activePage, navigate, connectWallet }) {
+function Topbar({ wallet, activePage, navigate, navigateToMint, connectWallet, chainInfo }) {
+  const tokenSymbol = chainInfo.tokenSymbol || 'PEPE';
+  const mintPrice = chainInfo.priceWei > 0n ? formatBnbFromWei(chainInfo.priceWei, 8) : '0.01';
+  const tokensPerMint = chainInfo.amountPerUnits > 0n ? formatUnits(chainInfo.amountPerUnits, chainInfo.tokenDecimals, 4) : '700';
+
   return (
     <header className="topbar">
       <button className="brand" onClick={() => navigate('arena')} type="button">
@@ -1357,6 +1373,16 @@ function Topbar({ wallet, activePage, navigate, connectWallet }) {
           </button>
         ))}
       </nav>
+      <button className={`mobile-mint-row ${activePage === 'launch' ? 'active' : ''}`} onClick={navigateToMint} type="button">
+        <Coins size={18} />
+        <span>
+          <b>Mint {tokenSymbol}</b>
+          <small>
+            {mintPrice} BNB / {tokensPerMint} {tokenSymbol}
+          </small>
+        </span>
+        <ChevronRight size={17} />
+      </button>
       <button className="wallet-btn" onClick={connectWallet} type="button">
         <Wallet size={17} />
         {wallet.address ? shortAddress(wallet.address) : '连接钱包'}
