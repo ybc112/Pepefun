@@ -56,7 +56,7 @@ PRIVATE_KEY=
 BSC_RPC_URL=https://bsc-dataseed.binance.org/
 BSCSCAN_API_KEY=
 FACTORY_FEE_RECEIVER=0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939
-FACTORY_CREATION_FEE_BNB=0.05
+FACTORY_CREATION_FEE_BNB=0.005
 PANCAKE_ROUTER=0x10ED43C718714eb63d5aA57B78B54704E256024E
 DEFAULT_REWARD_TOKEN=0xb3b2afb0de33d4d80a20839662bc99c6b360eeee
 VERIFY_AFTER_DEPLOY=false
@@ -91,6 +91,6 @@ Factory V2 deployed on BSC:
 
 - Address: `0x7aD123deaf587cF6763Ef6043A453a0D5b852F8d`
 - BscScan: `https://bscscan.com/address/0x7aD123deaf587cF6763Ef6043A453a0D5b852F8d#code`
-- Creation fee: `0.05 BNB`
+- Creation fee: `0.005 BNB`
 
 The frontend encodes `createFixedSupplyToken` and `createDividendToken` for the deployed V2 factory. The standalone `FairMintPool` source remains in this file for review/reference, while the current V2 factory frontend path does not deploy new mint pools.

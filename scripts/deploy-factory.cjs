@@ -54,7 +54,7 @@ async function main() {
   const feeReceiver = readAddress('FACTORY_FEE_RECEIVER', DEFAULT_FEE_RECEIVER);
   const pancakeRouter = readAddress('PANCAKE_ROUTER', DEFAULT_PANCAKE_ROUTER);
   const defaultRewardToken = readAddress('DEFAULT_REWARD_TOKEN', DEFAULT_REWARD_TOKEN);
-  const creationFeeBnb = process.env.FACTORY_CREATION_FEE_BNB || '0.05';
+  const creationFeeBnb = process.env.FACTORY_CREATION_FEE_BNB || '0.005';
   const creationFeeWei = hre.ethers.parseEther(creationFeeBnb);
 
   console.log(`Network: ${hre.network.name}`);
@@ -96,7 +96,7 @@ async function main() {
   fs.writeFileSync(outputPath, `${JSON.stringify(deploymentRecord, null, 2)}\n`);
   console.log(`Saved deployment record: ${outputPath}`);
 
-  await maybeVerify(address, [feeReceiver, creationFeeWei, pancakeRouter]);
+  await maybeVerify(address, [feeReceiver, creationFeeWei, pancakeRouter, defaultRewardToken]);
 }
 
 main().catch((error) => {

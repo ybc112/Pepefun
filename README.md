@@ -23,7 +23,7 @@ Factory V2 已在 BscScan 开源验证：`https://bscscan.com/address/0x7aD123de
 
 默认分红平台币地址为：`0xb3b2afb0de33d4d80a20839662bc99c6b360eeee`。
 
-当前 Factory 创建费为：`0.05 BNB`。
+当前 Factory 创建费为：`0.005 BNB`。
 
 ```bash
 npm run hardhat:compile
