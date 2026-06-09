@@ -24,13 +24,13 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react';
-import { Contract, JsonRpcProvider, getCreate2Address, keccak256, solidityPackedKeccak256, toUtf8Bytes } from 'ethers';
+import { Contract, Interface, JsonRpcProvider, getCreate2Address, keccak256, solidityPackedKeccak256, toUtf8Bytes } from 'ethers';
 import pepeArenaArt from './assets/pepe-arena.svg';
 
-const STORAGE_KEY = 'pepe-launch-arena-draft-v5';
+const STORAGE_KEY = 'pepe-launch-arena-draft-factory';
 const LAUNCH_FEE_BNB = '0.005';
 const PAYMENT_RECEIVER = import.meta.env.VITE_PAYMENT_RECEIVER || '';
-const FACTORY_CONTRACT = import.meta.env.VITE_FACTORY_CONTRACT || '0x9c7DA60DfC7E2ef82014b347Db24BcE9fb1faF08';
+const FACTORY_CONTRACT = import.meta.env.VITE_FACTORY_CONTRACT || '0x6B5319A16aB6dBD153675e3f7267ea5Ee00B9554';
 const MINT_CONTRACT = import.meta.env.VITE_MINT_CONTRACT || '0x17877D1e85390937c461b0A7886Ad75bAAC9F1dA';
 const TOKEN_CONTRACT = import.meta.env.VITE_TOKEN_CONTRACT || '0xb3b2afb0de33d4d80a20839662bc99c6b360eeee';
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
@@ -75,11 +75,18 @@ const FACTORY_SELECTORS = {
   creationFee: '0xdce0b4e4',
 };
 const FACTORY_VIEW_ABI = [
-  'function getDeployments(uint256 offset,uint256 limit) view returns (tuple(address creator,address token,address pair,uint8 templateId,bytes32 salt,uint256 valuePaid,uint256 liquidity,uint64 blockNumber,uint64 createdAt,bytes32 metadataHash)[])',
+  'function getDeployments(uint256 offset,uint256 limit) view returns (tuple(address creator,address token,address pair,address pool,uint8 templateId,bytes32 salt,uint256 valuePaid,uint256 liquidity,uint64 blockNumber,uint64 createdAt,bytes32 metadataHash)[])',
   'function getDeploymentsCount() view returns (uint256)',
+  'function getTemplateTokens(uint8 templateId,uint256 offset,uint256 limit) view returns (address[])',
+  'function getTemplateTokensCount(uint8 templateId) view returns (uint256)',
+  'function getTemplateDeployments(uint8 templateId,uint256 offset,uint256 limit) view returns (tuple(address creator,address token,address pair,address pool,uint8 templateId,bytes32 salt,uint256 valuePaid,uint256 liquidity,uint64 blockNumber,uint64 createdAt,bytes32 metadataHash)[])',
   'function templateInitCodeHash(uint8 templateId, tuple(string name,string symbol,uint256 totalSupply,address receiver) tokenParams, tuple(uint256 tokenAmount,uint256 bnbAmount,uint256 minTokenAmount,uint256 minBnbAmount,uint256 deadline,bool enabled) liquidityParams, tuple(address rewardToken,address feeReceiver,uint16 buyFeeBps,uint16 sellFeeBps,bool renounceOwnerAfterCreate) dividendParams) view returns (bytes32)',
 ];
+const FACTORY_WRITE_INTERFACE = new Interface([
+  'function deployFairMintLaunch((string name,string symbol,uint256 totalSupply,address receiver) tokenParams,(uint256 price,uint256 amountPerMint,uint256 mintLimit,uint256 whiteLimit,uint256 accMintLimit,uint256 accEachLimit,uint256 liquidityTokenAmount,bool startWhitelist,bool startPublic,bool renounceOwnerAfterCreate) mintParams,address[] initialWhitelist,(uint8 templateId,bytes32 salt,uint160 requiredSuffix,uint8 suffixLength,bool enforceSuffix) options,bytes32 metadataHash) payable returns (address token,address pool)',
+]);
 const TOKEN_DEPLOYED_TOPIC = keccak256(toUtf8Bytes('TokenDeployed(address,address,address,uint8,bytes32,uint256,uint256,bytes32)'));
+const FAIR_MINT_DEPLOYED_TOPIC = keccak256(toUtf8Bytes('FairMintLaunchDeployed(address,address,address,uint8,bytes32,uint256,bytes32)'));
 const TEMPLATE_IDS = {
   standard: 1,
   'zero-tax': 2,
@@ -87,6 +94,7 @@ const TEMPLATE_IDS = {
   'no-owner': 4,
   reflection: 10,
   'dividend-token': 10,
+  'fair-mint': 20,
 };
 const DEFAULT_CHAIN_INFO = {
   loading: true,
@@ -172,6 +180,7 @@ const templates = [
     name: '公平启动模板',
     tag: '无预挖',
     text: '无团队预留、无老鼠仓，发射权交给 Mint 速度和共识。',
+    deployable: true,
   },
   {
     id: 'no-owner',
@@ -251,10 +260,10 @@ const flowSteps = [
 ];
 
 const factoryFlow = [
-  ['01', '选择模板', '按模板 ID 走 deployFromTemplate，未接入模板不会伪装成可部署。'],
+  ['01', '选择模板', '按开放模板发币，暂未开放的模板不会伪装成可部署。'],
   ['02', '预测地址', 'CREATE2 salt 可预测 Token 地址，也可强制校验尾号。'],
-  ['03', 'LP进黑洞', '初始池子由 Factory 加入 PancakeSwap，LP 直接发到 dead。'],
-  ['04', '链上记录', 'Token、Creator、Pair、Salt、模板 ID 全部写入分页记录。'],
+  ['03', 'LP进黑洞', 'Factory 强制带初始池子，LP 接收地址写死为 dead。'],
+  ['04', '链上记录', 'Token、Creator、Pair、Salt、模板 ID 和模板索引全部分页可查。'],
 ];
 
 const launchWizardSteps = [
@@ -648,8 +657,35 @@ function getFixedLaunchLiquidity(form) {
   };
 }
 
+function getFairMintParams(form) {
+  const price = decimalToUnits(form.mintPrice, 18);
+  const amountPerMint = decimalToUnits(form.tokensPerMint, 18);
+  const mintLimit = BigInt(Math.max(1, Math.floor(numberValue(form.mintSlots))));
+  const whiteLimit = form.whitelist ? mintLimit : 0n;
+  const accMintLimit = BigInt(Math.max(1, Math.floor(numberValue(form.maxPerWallet))));
+  const accEachLimit = BigInt(Math.max(1, Math.floor(numberValue(form.mintQuantity))));
+  const saleSupply = amountPerMint * mintLimit;
+
+  return {
+    price,
+    amountPerMint,
+    mintLimit,
+    whiteLimit,
+    accMintLimit,
+    accEachLimit,
+    liquidityTokenAmount: saleSupply,
+    startWhitelist: Boolean(form.whitelist),
+    startPublic: !form.whitelist,
+    renounceOwnerAfterCreate: false,
+  };
+}
+
 function isDividendTemplate(templateId) {
   return templateId === 'reflection' || templateId === 'dividend-token';
+}
+
+function isFairMintTemplate(templateId) {
+  return templateId === 'fair-mint';
 }
 
 function getTemplateId(templateId) {
@@ -787,6 +823,22 @@ async function waitForTransactionReceipt(txHash, attempts = 40) {
 }
 
 function parseFactoryDeployment(receipt) {
+  const fairMint = (receipt?.logs || []).find(
+    (log) =>
+      sameAddress(log.address, FACTORY_CONTRACT) &&
+      Array.isArray(log.topics) &&
+      log.topics[0]?.toLowerCase() === FAIR_MINT_DEPLOYED_TOPIC.toLowerCase(),
+  );
+  if (fairMint) {
+    return {
+      creator: decodeTopicAddress(fairMint.topics[1]),
+      tokenAddress: decodeTopicAddress(fairMint.topics[2]),
+      poolAddress: decodeTopicAddress(fairMint.topics[3]),
+      pairAddress: '',
+      blockNumber: receipt.blockNumber ? Number(BigInt(receipt.blockNumber)) : null,
+    };
+  }
+
   const found = (receipt?.logs || []).find(
     (log) =>
       sameAddress(log.address, FACTORY_CONTRACT) &&
@@ -798,6 +850,7 @@ function parseFactoryDeployment(receipt) {
     creator: decodeTopicAddress(found.topics[1]),
     tokenAddress: decodeTopicAddress(found.topics[2]),
     pairAddress: decodeTopicAddress(found.topics[3]),
+    poolAddress: '',
     blockNumber: receipt.blockNumber ? Number(BigInt(receipt.blockNumber)) : null,
   };
 }
@@ -1040,14 +1093,8 @@ function App() {
         setChainInfo(nextInfo);
         setForm((current) => ({
           ...current,
-          tokenName: current.tokenName.trim() ? current.tokenName : nextInfo.tokenName,
-          symbol: current.symbol.trim() ? current.symbol : nextInfo.tokenSymbol,
-          totalSupply: nextInfo.totalSupply || current.totalSupply,
-          mintPrice: nextInfo.priceWei > 0n ? formatBnbFromWei(nextInfo.priceWei, 8) : current.mintPrice,
-          tokensPerMint: nextInfo.amountPerUnits > 0n ? formatUnits(nextInfo.amountPerUnits, nextInfo.tokenDecimals, 4) : current.tokensPerMint,
-          mintSlots: nextInfo.mintLimit ? String(nextInfo.mintLimit) : current.mintSlots,
-          maxPerWallet: nextInfo.accMintLimit ? String(nextInfo.accMintLimit) : current.maxPerWallet,
-          mintQuantity: String(Math.max(1, Math.min(numberValue(current.mintQuantity) || 1, nextInfo.accEachLimit || 1))),
+          tokenName: current.tokenName.trim() ? current.tokenName : '',
+          symbol: current.symbol.trim() ? current.symbol : '',
         }));
       } catch (error) {
         if (!cancelled) {
@@ -1069,6 +1116,14 @@ function App() {
   function update(field, value) {
     if (field === 'deadLiquidity' || field === 'renounceOwner') {
       setForm((current) => ({ ...current, [field]: true }));
+      return;
+    }
+    if (field === 'mode') {
+      setForm((current) => ({
+        ...current,
+        mode: value,
+        templateId: value === 'mint' ? 'fair-mint' : current.templateId === 'fair-mint' ? 'standard' : current.templateId,
+      }));
       return;
     }
     setForm((current) => ({ ...current, [field]: value }));
@@ -1097,6 +1152,7 @@ function App() {
             creator: item.creator,
             token: item.token,
             pair: item.pair,
+            pool: item.pool,
             templateId: Number(item.templateId),
             salt: item.salt,
             valuePaid: item.valuePaid,
@@ -1126,7 +1182,7 @@ function App() {
     const { address } = await ensureWallet();
     const templateId = getTemplateId(form.templateId);
     if (!templateId) {
-      notify('当前模板还没有接入 V3 工厂');
+      notify('当前模板暂未开放链上发射');
       return;
     }
 
@@ -1187,7 +1243,9 @@ function App() {
     setForm((current) => ({
       ...current,
       ...(next.mode ? { mode: next.mode } : {}),
-      ...(next.templateId ? { templateId: next.templateId } : {}),
+      templateId:
+        next.templateId ||
+        (next.mode === 'mint' ? 'fair-mint' : next.mode === 'direct' && current.templateId === 'fair-mint' ? 'standard' : current.templateId),
     }));
     setActivePage('launch');
     setLaunchStep(next.step || 'basic');
@@ -1238,7 +1296,7 @@ function App() {
     const { provider, address } = await ensureWallet();
     const receiver = [FACTORY_CONTRACT, PAYMENT_RECEIVER].find((item) => isAddress(item));
     if (!receiver) {
-      throw new Error('链上执行入口尚未接入，请稍后再发起交易。');
+      throw new Error('链上执行入口还未准备好，请稍后再发起交易。');
     }
     const txHash = await provider.request({
       method: 'eth_sendTransaction',
@@ -1256,7 +1314,7 @@ function App() {
   async function requestFactoryCreate(currentCheckout) {
     const { provider, address } = await ensureWallet();
     if (!isAddress(FACTORY_CONTRACT)) {
-      throw new Error('发币工厂合约还没有接入，暂不能创建新币。');
+      throw new Error('发币工厂合约还未准备好，暂不能创建新币。');
     }
 
     const receiver = form.owner && isAddress(form.owner) ? form.owner : address;
@@ -1271,6 +1329,7 @@ function App() {
     const templateId = getTemplateId(form.templateId);
     const suffix = normalizeHexSuffix(form.vanitySuffix);
     const salt = saltToBytes32(form.vanitySalt, `${address}-${form.symbol}-${form.tokenName}`);
+    const whitelistInfo = parseWhitelist(form.whitelistAddresses);
     const dividendParams = {
       rewardToken: isDividendTemplate(form.templateId) ? TOKEN_CONTRACT : ZERO_ADDRESS,
       feeReceiver: ZERO_ADDRESS,
@@ -1285,11 +1344,19 @@ function App() {
       suffixLength: suffix.length,
       enforceSuffix: suffix.length > 0,
     };
-    const data = encodeDeployFromTemplateCall(tokenParams, liquidityParams, dividendParams, deployOptions, getMetadataHash(form));
+    const data = isFairMintTemplate(form.templateId)
+      ? FACTORY_WRITE_INTERFACE.encodeFunctionData('deployFairMintLaunch', [
+          tokenParams,
+          getFairMintParams(form),
+          form.whitelist ? whitelistInfo.valid : [],
+          deployOptions,
+          getMetadataHash(form),
+        ])
+      : encodeDeployFromTemplateCall(tokenParams, liquidityParams, dividendParams, deployOptions, getMetadataHash(form));
     const expectedValue =
       currentCheckout.valueWei && currentCheckout.valueWei !== '0'
         ? BigInt(currentCheckout.valueWei)
-        : (await getFactoryCreationFeeWei()) + liquidityParams.bnbAmount;
+        : (await getFactoryCreationFeeWei()) + (isFairMintTemplate(form.templateId) ? 0n : liquidityParams.bnbAmount);
 
     const txHash = await provider.request({
       method: 'eth_sendTransaction',
@@ -1314,10 +1381,11 @@ function App() {
       purpose: isDividendTemplate(form.templateId) ? 'factoryCreateDividend' : 'factoryCreate',
       tokenAddress: deployment?.tokenAddress || '',
       pairAddress: deployment?.pairAddress || '',
+      poolAddress: deployment?.poolAddress || '',
       blockNumber: deployment?.blockNumber || null,
       confirmed: Boolean(receipt && receipt.status === '0x1'),
       salt,
-      actionLabel: isDividendTemplate(form.templateId) ? '创建分红新币' : '创建新币',
+      actionLabel: isFairMintTemplate(form.templateId) ? '创建白名单Mint池' : isDividendTemplate(form.templateId) ? '创建分红新币' : '创建新币',
     };
   }
 
@@ -1433,18 +1501,11 @@ function App() {
   }
 
   function validateLaunch() {
-    if (form.mode === 'mint') {
-      if (chainInfo.loading) return '正在读取链上 Mint 参数，请稍后再试';
-      if (chainInfo.error) return '链上 Mint 参数读取失败，请先刷新';
-      if (chainInfo.priceWei <= 0n) return 'Mint 单价读取失败，暂不能发起交易';
-      if (numberValue(form.mintQuantity) <= 0) return '本次 Mint 份数必须大于 0';
-      return '';
-    }
-
     if (!form.tokenName.trim()) return '请填写代币名称';
     if (!form.symbol.trim()) return '请填写代币符号';
     if (numberValue(form.totalSupply) <= 0) return '代币总量必须大于 0';
-    if (!isDeployableTemplate(form.templateId)) return '当前模板还没有接入 V3 工厂，请选择已开放部署的模板';
+    if (!isDeployableTemplate(form.templateId)) return '当前模板暂未开放链上发射，请选择已开放模板';
+    if (form.mode === 'mint' && !isFairMintTemplate(form.templateId)) return '自由 Mint 模式请使用公平启动模板';
     if (normalizeHexSuffix(form.vanitySuffix).length !== String(form.vanitySuffix || '').replace(/^0x/i, '').replace(/\s+/g, '').length) {
       return '尾号只能填写 0-9 / a-f 的十六进制字符';
     }
@@ -1459,7 +1520,7 @@ function App() {
     if (form.mode === 'direct' && numberValue(form.initialLiquidity) <= 0) return '初始流动性必须大于 0，LP 会直接打入 dead 黑洞';
     if (form.mode === 'direct' && numberValue(form.launchPrice) <= 0) return '首发价格必须大于 0，用来计算进池代币数量';
     if (!form.deadLiquidity) return '平台规则要求底池 LP 全部打入 dead 黑洞';
-    if (!form.renounceOwner) return '平台规则要求发射后放弃 Owner 权限';
+    if (form.mode === 'direct' && !form.renounceOwner) return '平台规则要求发射后放弃 Owner 权限';
     if (form.mode === 'direct') {
       const totalSupply = decimalToUnits(form.totalSupply, 18);
       const liquidityParams = getFixedLaunchLiquidity(form);
@@ -1474,6 +1535,11 @@ function App() {
       if (numberValue(form.tokensPerMint) <= 0) return '每份 Mint 获得代币必须大于 0';
       if (numberValue(form.mintSlots) <= 0) return 'Mint 总份数必须大于 0';
       if (numberValue(form.maxPerWallet) <= 0) return '每钱包 Mint 上限必须大于 0';
+      if (numberValue(form.mintQuantity) <= 0) return '单次 Mint 上限必须大于 0';
+      const totalSupply = decimalToUnits(form.totalSupply, 18);
+      const mintParams = getFairMintParams(form);
+      const requiredSupply = mintParams.amountPerMint * mintParams.mintLimit + mintParams.liquidityTokenAmount;
+      if (requiredSupply > totalSupply) return '总量不足：Mint 售卖份额 + 毕业进池代币已经超过代币总量';
     }
     return '';
   }
@@ -1502,13 +1568,13 @@ function App() {
     const tokenSymbol = chainInfo.tokenSymbol || form.symbol || 'PEPE';
     setCheckout({
       type: 'mintLive',
-      title: `真实 Mint：${tokenSymbol}`,
+      title: `Mint：${tokenSymbol}`,
       description: '这次会直接向 Mint 合约发送 BNB，钱包弹窗里的接收地址应为当前 Mint 合约。',
       amountBnb: formatBnbFromWei(amountWei, 8),
       valueWei: amountWei.toString(),
       quantity,
       receiver: MINT_CONTRACT,
-      actionLabel: '确认真实 Mint',
+      actionLabel: '确认 Mint',
       summary: [
         ['Mint 合约', shortAddress(MINT_CONTRACT)],
         ['代币合约', shortAddress(chainInfo.tokenAddress || TOKEN_CONTRACT)],
@@ -1573,30 +1639,34 @@ function App() {
     const whitelistInfo = parseWhitelist(form.whitelistAddresses);
     const liquidityParams = getFixedLaunchLiquidity(form);
     const dividendMode = isDividendTemplate(form.templateId);
+    const fairMintMode = isFairMintTemplate(form.templateId);
+    const mintParams = getFairMintParams(form);
     const templateId = getTemplateId(form.templateId);
     const suffix = normalizeHexSuffix(form.vanitySuffix);
-    const totalValueWei = factoryReady ? factoryFeeWei + liquidityParams.bnbAmount : 0n;
+    const totalValueWei = factoryReady ? factoryFeeWei + (fairMintMode ? 0n : liquidityParams.bnbAmount) : 0n;
     setCheckout({
       type: factoryReady ? 'factoryCreate' : 'factoryPlan',
       title: `发币工厂方案：${form.tokenName || 'Pepe Token'}`,
       description: factoryReady
-        ? `这次会调用发币工厂合约创建新的${dividendMode ? '持币分红平台币' : '固定总量 BEP20'}。请在钱包里核对工厂地址、创建费和网络。`
+        ? `这次会调用发币工厂合约创建新的${fairMintMode ? '白名单 Mint 池' : dividendMode ? '持币分红平台币' : '固定总量 BEP20'}。请在钱包里核对工厂地址、创建费和网络。`
         : '自助发新币需要先部署发币工厂合约。当前不会拉起钱包转账，先把你的发币参数整理成工厂部署方案。',
       amountBnb: factoryReady ? formatBnbFromWei(totalValueWei, 8) : '0',
       valueWei: totalValueWei.toString(),
-      actionLabel: factoryReady ? (dividendMode ? '确认创建分红币' : '确认创建新币') : '继续配置参数',
+      actionLabel: factoryReady ? (fairMintMode ? '确认创建Mint池' : dividendMode ? '确认创建分红币' : '确认创建新币') : '继续配置参数',
       summary: [
-        ['工厂状态', factoryReady ? '已部署，可发真实创建交易' : '合约草案已加入仓库'],
-        ['工厂合约', factoryReady ? shortAddress(FACTORY_CONTRACT) : '待部署'],
+        ['工厂状态', factoryReady ? '可发真实创建交易' : '等待链上地址'],
+        ['工厂合约', factoryReady ? shortAddress(FACTORY_CONTRACT) : '准备中'],
         ['发射模式', selectedMode.title],
         ['合约模板', selectedTemplate.name],
-        ['模板ID', templateId ? String(templateId) : '未接入'],
-        ['工厂方法', 'deployFromTemplate'],
-        ['创建方法', dividendMode ? '持币分红平台币' : '标准固定总量'],
+        ['模板ID', templateId ? String(templateId) : '暂未开放'],
+        ['链上动作', fairMintMode ? '创建白名单 Mint 池' : dividendMode ? '创建持币分红币' : '创建固定总量新币'],
+        ['创建方法', fairMintMode ? '白名单 Mint + 自动黑洞 LP' : dividendMode ? '持币分红平台币' : '标准固定总量'],
         ['代币总量', formatNumber(form.totalSupply, 0)],
         ['创建费', factoryReady ? `${formatBnbFromWei(factoryFeeWei, 8)} BNB` : '部署后链上读取'],
-        ['初始流动性', `${formatBnbFromWei(liquidityParams.bnbAmount, 8)} BNB`],
-        ['进池代币', `${formatUnits(liquidityParams.tokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`],
+        fairMintMode ? ['Mint单价', `${formatBnbFromWei(mintParams.price, 8)} BNB`] : ['初始流动性', `${formatBnbFromWei(liquidityParams.bnbAmount, 8)} BNB`],
+        fairMintMode
+          ? ['毕业进池代币', `${formatUnits(mintParams.liquidityTokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`]
+          : ['进池代币', `${formatUnits(liquidityParams.tokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`],
         ...(dividendMode
           ? [
               ['分红平台币', shortAddress(TOKEN_CONTRACT)],
@@ -1606,7 +1676,7 @@ function App() {
         ['LP接收', shortAddress(DEAD_ADDRESS)],
         ['尾号定制', suffix ? `...${suffix}` : '未指定'],
         ['Salt', form.vanitySalt ? shortAddress(saltToBytes32(form.vanitySalt)) : '确认时自动生成'],
-        ['权限', 'Token无Owner，LP已黑洞'],
+        ['权限', fairMintMode ? 'Token无Owner，Mint池Owner给项目方' : 'Token无Owner，LP已黑洞'],
         ['接收钱包', form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '确认时连接'],
         ['白名单', form.whitelist ? `${whitelistInfo.valid.length} 个地址` : '未开启'],
       ],
@@ -1728,11 +1798,7 @@ function App() {
 
   function submitLaunch(event) {
     event.preventDefault();
-    if (form.mode === 'mint') {
-      openMintCheckout();
-      return;
-    }
-    if (form.mode === 'direct') {
+    if (form.mode === 'direct' || form.mode === 'mint') {
       openFactoryPlanCheckout();
       return;
     }
@@ -1765,7 +1831,7 @@ function App() {
       setCheckout(null);
       setActivePage('launch');
       setLaunchStep('basic');
-      notify('发币参数已保留，工厂合约部署后即可接入真实创建交易。');
+      notify('发币参数已保留，工厂合约准备好后即可发起真实创建交易。');
       return;
     }
     setBusy(true);
@@ -1784,7 +1850,7 @@ function App() {
       }
       const actionName =
         checkout.type === 'mintLive'
-          ? '真实 Mint'
+          ? 'Mint'
           : checkout.type === 'whitelist'
             ? '白名单写入'
             : checkout.type === 'contractAction'
@@ -1840,7 +1906,6 @@ function App() {
         navigate={navigateToPage}
         navigateToMint={navigateToMint}
         connectWallet={connectWallet}
-        chainInfo={chainInfo}
       />
       <main className="shell page-shell">
         <div className="page-stage">
@@ -1877,9 +1942,6 @@ function App() {
               launchStep={launchStep}
               setLaunchStep={setLaunchStep}
               chainInfo={chainInfo}
-              refreshChainInfo={refreshChainInfo}
-              openWhitelistCheckout={openWhitelistCheckout}
-              openContractActionCheckout={openContractActionCheckout}
               mineVanitySalt={mineVanitySalt}
               vanityPreview={vanityPreview}
               factoryRecords={factoryRecords}
@@ -1905,11 +1967,7 @@ function App() {
   );
 }
 
-function Topbar({ wallet, activePage, navigate, navigateToMint, connectWallet, chainInfo }) {
-  const tokenSymbol = chainInfo.tokenSymbol || 'PEPE';
-  const mintPrice = chainInfo.priceWei > 0n ? formatBnbFromWei(chainInfo.priceWei, 8) : '0.01';
-  const tokensPerMint = chainInfo.amountPerUnits > 0n ? formatUnits(chainInfo.amountPerUnits, chainInfo.tokenDecimals, 4) : '700';
-
+function Topbar({ wallet, activePage, navigate, navigateToMint, connectWallet }) {
   return (
     <header className="topbar">
       <button className="brand" onClick={() => navigate('arena')} type="button">
@@ -1932,10 +1990,8 @@ function Topbar({ wallet, activePage, navigate, navigateToMint, connectWallet, c
       <button className={`mobile-mint-row ${activePage === 'launch' ? 'active' : ''}`} onClick={navigateToMint} type="button">
         <Coins size={18} />
         <span>
-          <b>Mint {tokenSymbol}</b>
-          <small>
-            {mintPrice} BNB / {tokensPerMint} {tokenSymbol}
-          </small>
+          <b>创建Mint池</b>
+          <small>{LAUNCH_FEE_BNB} BNB 创建费</small>
         </span>
         <ChevronRight size={17} />
       </button>
@@ -2061,7 +2117,7 @@ function ArenaVisual() {
 
 function MetricStrip() {
   const metrics = [
-    [FileCheck2, 'V3模板', `${templates.filter((item) => item.deployable).length}个`],
+    [FileCheck2, '开放模板', `${templates.filter((item) => item.deployable).length}个`],
     [Gauge, '发射模式', '2种'],
     [LockKeyhole, '底池规则', 'dead黑洞'],
     [Wallet, '钱包网络', 'BSC主网'],
@@ -2133,12 +2189,15 @@ function TemplateSection({ selectedTemplate, selectTemplate, startLaunch }) {
       <SectionHead
         eyebrow="Contract Templates"
         title="多种模板协议，像选皮肤一样发币"
-        text="当前 V3 已接入标准、零税、黑洞底池、无 Owner 和平台币分红模板；规划模板会标记为规划中，不会伪装成可部署。"
+        text="标准、零税、黑洞底池、无 Owner、平台币分红和白名单 Mint 池都已开放；所有发射都会按规则处理黑洞底池。"
       />
       <div className="section-actions">
         <button
           className="primary"
-          onClick={() => startLaunch({ mode: 'direct', templateId: selectedTemplate.deployable ? selectedTemplate.id : 'standard', step: 'basic' })}
+          onClick={() => {
+            const templateId = selectedTemplate.deployable ? selectedTemplate.id : 'standard';
+            startLaunch({ mode: templateId === 'fair-mint' ? 'mint' : 'direct', templateId, step: 'basic' });
+          }}
           type="button"
         >
           <Rocket size={16} />
@@ -2156,7 +2215,9 @@ function TemplateSection({ selectedTemplate, selectTemplate, startLaunch }) {
             key={template.id}
             onClick={() => {
               selectTemplate(template.id);
-              if (template.deployable) startLaunch({ mode: 'direct', templateId: template.id, step: 'basic' });
+              if (template.deployable) {
+                startLaunch({ mode: template.id === 'fair-mint' ? 'mint' : 'direct', templateId: template.id, step: 'basic' });
+              }
             }}
             type="button"
           >
@@ -2164,7 +2225,7 @@ function TemplateSection({ selectedTemplate, selectTemplate, startLaunch }) {
               <small>{template.tag}</small>
               <b>{template.name}</b>
               <em>{template.text}</em>
-              <i>{template.deployable ? 'V3已接入 · 点此发币' : '规划中'}</i>
+              <i>{template.deployable ? '已开放 · 点此发币' : '规划中'}</i>
             </span>
             {selectedTemplate.id === template.id && <CheckCircle2 size={18} />}
           </button>
@@ -2244,9 +2305,6 @@ function LaunchWorkbench({
   launchStep,
   setLaunchStep,
   chainInfo,
-  refreshChainInfo,
-  openWhitelistCheckout,
-  openContractActionCheckout,
   mineVanitySalt,
   vanityPreview,
   factoryRecords,
@@ -2257,19 +2315,20 @@ function LaunchWorkbench({
   const previousStep = launchWizardSteps[currentStepIndex - 1];
   const nextStep = launchWizardSteps[currentStepIndex + 1];
   const whitelistInfo = parseWhitelist(form.whitelistAddresses);
+  const liquidityParams = getFixedLaunchLiquidity(form);
   const tokenSymbol = chainInfo.tokenSymbol || form.symbol || 'PEPE';
   const liveMintPrice = chainInfo.priceWei > 0n ? formatBnbFromWei(chainInfo.priceWei, 8) : form.mintPrice;
   const liveTokensPerMint =
     chainInfo.amountPerUnits > 0n ? formatUnits(chainInfo.amountPerUnits, chainInfo.tokenDecimals, 4) : form.tokensPerMint;
   const mintProgress = chainInfo.mintLimit ? `${chainInfo.minted}/${chainInfo.mintLimit}` : `${chainInfo.minted || 0}`;
-  const ownerConnected = sameAddress(wallet.address, chainInfo.owner);
+  const mintParams = getFairMintParams(form);
 
   return (
     <section className="section-panel launch-panel" id="launch">
       <SectionHead
         eyebrow="Launch Console"
         title="登上你的擂台"
-        text="发射台改成步骤页了。按顺序填模式、基础、参数、规则，最后预览并拉起真实钱包。"
+        text="按步骤配置发射模式、基础信息、参数和规则，最后预览并拉起真实钱包交易。"
       />
       <form className="launch-workbench" onSubmit={submitLaunch}>
         <div className="launch-main paged-form">
@@ -2299,7 +2358,10 @@ function LaunchWorkbench({
               </FormField>
               <FormField label="合约模板" wide>
                 <div className="template-picker">
-                  {templates.filter((template) => template.deployable).map((template) => (
+                  {templates
+                    .filter((template) => template.deployable)
+                    .filter((template) => (form.mode === 'mint' ? template.id === 'fair-mint' : template.id !== 'fair-mint'))
+                    .map((template) => (
                     <button
                       className={form.templateId === template.id ? 'active' : ''}
                       key={template.id}
@@ -2462,10 +2524,11 @@ function LaunchWorkbench({
                           加入当前钱包
                         </button>
                       )}
-                      <button className="secondary" disabled={busy} onClick={openWhitelistCheckout} type="button">
-                        <LockKeyhole size={15} />
-                        写入链上
-                      </button>
+                      {form.mode === 'mint' ? (
+                        <span className="status-pill green">创建时写入新池</span>
+                      ) : (
+                        <span className="status-pill cyan">仅自由Mint使用</span>
+                      )}
                       <button className="secondary" onClick={() => update('whitelistAddresses', '')} type="button">
                         清空名单
                       </button>
@@ -2506,22 +2569,41 @@ function LaunchWorkbench({
               <div className="launch-confirm">
                 <Rocket size={26} />
                 <h3>{form.tokenName || 'Pepe Fighter'} 准备登上擂台</h3>
-                <p>请确认右侧预览、真实合约、Mint 金额和白名单状态。点击真实 Mint 后会拉起钱包。</p>
+                <p>请确认右侧预览、工厂地址、发射参数和白名单状态。点击创建后会拉起钱包部署新币。</p>
                 <div className="live-mint-strip">
-                  <span>
-                    <em>链上单价</em>
-                    <b>{liveMintPrice} BNB</b>
-                  </span>
-                  <span>
-                    <em>每份获得</em>
-                    <b>
-                      {liveTokensPerMint} {tokenSymbol}
-                    </b>
-                  </span>
-                  <span>
-                    <em>Mint进度</em>
-                    <b>{mintProgress}</b>
-                  </span>
+                  {form.mode === 'mint' ? (
+                    <>
+                      <span>
+                        <em>Mint单价</em>
+                        <b>{form.mintPrice} BNB</b>
+                      </span>
+                      <span>
+                        <em>每份获得</em>
+                        <b>
+                          {form.tokensPerMint} {form.symbol || tokenSymbol}
+                        </b>
+                      </span>
+                      <span>
+                        <em>总份数</em>
+                        <b>{form.mintSlots}</b>
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>
+                        <em>初始LP</em>
+                        <b>{form.initialLiquidity} BNB</b>
+                      </span>
+                      <span>
+                        <em>首发价格</em>
+                        <b>{form.launchPrice} BNB</b>
+                      </span>
+                      <span>
+                        <em>进池代币</em>
+                        <b>{formatUnits(liquidityParams.tokenAmount, 18, 4)} {form.symbol || tokenSymbol}</b>
+                      </span>
+                    </>
+                  )}
                 </div>
                 {form.whitelist && (
                   <div className="whitelist-summary">
@@ -2554,7 +2636,7 @@ function LaunchWorkbench({
             ) : (
               <button className="primary" type="submit">
                 <Coins size={16} />
-                {form.mode === 'mint' ? '真实 Mint' : '登上擂台'}
+                {form.mode === 'mint' ? '创建Mint池' : '登上擂台'}
               </button>
             )}
           </div>
@@ -2571,21 +2653,21 @@ function LaunchWorkbench({
             </div>
             <div className="preview-lines">
               <MiniMetric label="合约模板" value={selectedTemplate.name} />
-              <MiniMetric label="预计支付" value={form.mode === 'mint' ? `${liveMintPrice} BNB / 份` : `${formatBnb(launchAmount)} BNB`} />
+              <MiniMetric label="预计支付" value={form.mode === 'mint' ? `创建费 ${LAUNCH_FEE_BNB} BNB` : `${formatBnb(launchAmount)} BNB`} />
               <MiniMetric label="Mint募集上限" value={`${formatBnb(mintRaise)} BNB`} />
               <MiniMetric label="黑洞地址" value={shortAddress(DEAD_ADDRESS)} />
               <MiniMetric label="买/卖税" value={`${form.buyTax}% / ${form.sellTax}%`} />
               <MiniMetric label="尾号定制" value={form.vanitySuffix ? `...${normalizeHexSuffix(form.vanitySuffix)}` : '随机地址'} />
-              <MiniMetric label="Owner" value={form.renounceOwner ? '部署后抛弃' : '项目方保留'} />
+              <MiniMetric label="Owner" value={form.mode === 'mint' ? 'Token无Owner / Mint池归项目方' : form.renounceOwner ? '部署后抛弃' : '项目方保留'} />
               <MiniMetric label="白名单" value={form.whitelist ? `${whitelistInfo.valid.length} 个地址` : '未开启'} />
             </div>
             <button className="secondary full" onClick={() => copyText(DEAD_ADDRESS, '黑洞地址')} type="button">
               <Copy size={16} />
               复制 dead 地址
             </button>
-            <button className="secondary full" disabled={chainInfo.loading} onClick={refreshChainInfo} type="button">
+            <button className="secondary full" disabled={busy} onClick={() => refreshFactoryRecords()} type="button">
               <Timer size={16} />
-              {chainInfo.loading ? '读取链上参数' : '刷新链上参数'}
+              刷新发射记录
             </button>
             {!wallet.address && (
               <button className="secondary full" onClick={connectWallet} type="button">
@@ -2593,15 +2675,10 @@ function LaunchWorkbench({
                 连接真实钱包
               </button>
             )}
-            {form.whitelist && (
-              <button className="secondary full" disabled={busy} onClick={openWhitelistCheckout} type="button">
-                <LockKeyhole size={16} />
-                写入白名单到链上
-              </button>
-            )}
+            {form.whitelist && form.mode === 'mint' && <span className="status-pill green">白名单创建时写入新池</span>}
             <button className="primary full submit-btn" type="submit">
               <Coins size={16} />
-              {form.mode === 'mint' ? '真实 Mint' : '登上擂台'}
+              {form.mode === 'mint' ? '创建Mint池' : '登上擂台'}
             </button>
           </Panel>
 
@@ -2613,124 +2690,45 @@ function LaunchWorkbench({
             setLaunchStep={setLaunchStep}
           />
 
-          <Panel title="真实合约" icon={Coins}>
-            {chainInfo.error ? (
-              <EmptyInline icon={XCircle} title="读取失败" text={chainInfo.error} />
-            ) : chainInfo.loading ? (
-              <EmptyInline icon={Timer} title="读取链上参数" text="正在从 BSC 主网读取 Mint 合约和代币合约状态。" />
+          <Panel title={form.mode === 'mint' ? '白名单Mint池' : '发币工厂参数'} icon={Coins}>
+            {form.mode === 'mint' ? (
+              <>
+                <div className="chain-status-row">
+                  <span className="status-pill green">创建新池</span>
+                  <span className="status-pill green">Mint BNB进LP</span>
+                  <span className="status-pill green">LP进dead</span>
+                </div>
+                <div className="preview-lines chain-lines">
+                  <MiniMetric label="模板" value={selectedTemplate.name} />
+                  <MiniMetric label="Mint单价" value={`${formatBnbFromWei(mintParams.price, 8)} BNB`} />
+                  <MiniMetric label="每份获得" value={`${formatUnits(mintParams.amountPerMint, 18, 4)} ${form.symbol || 'PEPE'}`} />
+                  <MiniMetric label="Mint总份数" value={`${mintParams.mintLimit.toString()} 份`} />
+                  <MiniMetric label="每钱包上限" value={`${mintParams.accMintLimit.toString()} 份`} />
+                  <MiniMetric label="单次上限" value={`${mintParams.accEachLimit.toString()} 份`} />
+                  <MiniMetric label="白名单" value={form.whitelist ? `${whitelistInfo.valid.length} 个地址` : '不启用'} />
+                  <MiniMetric label="毕业进池" value={`${formatUnits(mintParams.liquidityTokenAmount, 18, 4)} ${form.symbol || 'PEPE'}`} />
+                  <MiniMetric label="Mint池Owner" value={form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '创建钱包'} />
+                  <MiniMetric label="Token权限" value="无Owner" />
+                </div>
+              </>
             ) : (
               <>
                 <div className="chain-status-row">
-                  <span className={`status-pill ${chainInfo.start ? 'green' : chainInfo.startWhitelist ? 'cyan' : 'red'}`}>
-                    {mintStatusLabel(chainInfo)}
-                  </span>
-                  {ownerConnected && <span className="status-pill green">Owner已连接</span>}
-                  {wallet.address && chainInfo.walletWhitelisted !== null && (
-                    <span className={`status-pill ${chainInfo.walletWhitelisted ? 'green' : 'red'}`}>
-                      {chainInfo.walletWhitelisted ? '当前钱包在白名单' : '当前钱包未入白名单'}
-                    </span>
-                  )}
+                  <span className="status-pill green">模板发币</span>
+                  <span className="status-pill green">LP进dead</span>
+                  <span className="status-pill green">权限丢掉</span>
                 </div>
                 <div className="preview-lines chain-lines">
-                  <MiniMetric label="Mint合约" value={shortAddress(MINT_CONTRACT)} />
-                  <MiniMetric label="代币合约" value={shortAddress(chainInfo.tokenAddress || TOKEN_CONTRACT)} />
-                  <MiniMetric label="代币" value={`${chainInfo.tokenName || 'PEPE'} / ${tokenSymbol}`} />
-                  <MiniMetric label="总量" value={`${formatNumber(chainInfo.totalSupply, 0)} ${tokenSymbol}`} />
-                  <MiniMetric label="单价" value={`${liveMintPrice} BNB`} />
-                  <MiniMetric label="每份" value={`${liveTokensPerMint} ${tokenSymbol}`} />
-                  <MiniMetric label="Mint进度" value={mintProgress} />
-                  <MiniMetric label="钱包上限" value={chainInfo.accMintLimit ? `${chainInfo.accMintLimit} 份` : '按合约'} />
-                  <MiniMetric label="Owner" value={shortAddress(chainInfo.owner)} />
-                  <MiniMetric label="收款地址" value={shortAddress(chainInfo.fundAddress)} />
-                  {wallet.address && <MiniMetric label="我已Mint" value={chainInfo.walletMinted === null ? '未读取' : `${chainInfo.walletMinted} 份`} />}
-                  {wallet.address && <MiniMetric label="我的余额" value={chainInfo.walletBalance ? `${chainInfo.walletBalance} ${tokenSymbol}` : '0'} />}
-                </div>
-                <div className="result-actions">
-                  <a className="secondary" href={addressUrl(MINT_CONTRACT)} target="_blank" rel="noreferrer">
-                    <ExternalLink size={15} />
-                    Mint合约
-                  </a>
-                  <a className="secondary" href={addressUrl(chainInfo.tokenAddress || TOKEN_CONTRACT)} target="_blank" rel="noreferrer">
-                    <ExternalLink size={15} />
-                    Token合约
-                  </a>
-                  <a className="secondary" href={pancakeUrl(chainInfo.tokenAddress || TOKEN_CONTRACT)} target="_blank" rel="noreferrer">
-                    <ExternalLink size={15} />
-                    Pancake
-                  </a>
-                </div>
-                <div className="owner-console">
-                  <div className="owner-console-head">
-                    <b>Owner 管理</b>
-                    <span>{ownerConnected ? '当前钱包可管理' : '连接 Owner 钱包后执行'}</span>
-                  </div>
-                  <div className="owner-actions">
-                    <button
-                      className="secondary"
-                      disabled={busy || (wallet.address && !ownerConnected)}
-                      onClick={() => openContractActionCheckout('approveLaunch')}
-                      type="button"
-                    >
-                      授权代币
-                    </button>
-                    <button
-                      className="secondary"
-                      disabled={busy || chainInfo.startWhitelist || (wallet.address && !ownerConnected)}
-                      onClick={() => openContractActionCheckout('launchWhitelist')}
-                      type="button"
-                    >
-                      开白名单
-                    </button>
-                    <button
-                      className="secondary"
-                      disabled={busy || chainInfo.start || (wallet.address && !ownerConnected)}
-                      onClick={() => openContractActionCheckout('launchPublic')}
-                      type="button"
-                    >
-                      开公开Mint
-                    </button>
-                    <button
-                      className="secondary"
-                      disabled={busy || (wallet.address && !ownerConnected)}
-                      onClick={() => openContractActionCheckout('setPrice')}
-                      type="button"
-                    >
-                      保存单价
-                    </button>
-                    <button
-                      className="secondary"
-                      disabled={busy || (wallet.address && !ownerConnected)}
-                      onClick={() => openContractActionCheckout('setAmountPerUnits')}
-                      type="button"
-                    >
-                      保存每份
-                    </button>
-                    <button
-                      className="secondary"
-                      disabled={busy || (wallet.address && !ownerConnected)}
-                      onClick={() => openContractActionCheckout('setMintLimit')}
-                      type="button"
-                    >
-                      保存总份数
-                    </button>
-                    <button
-                      className="secondary"
-                      disabled={busy || (wallet.address && !ownerConnected)}
-                      onClick={() => openContractActionCheckout('setAccMintLimit')}
-                      type="button"
-                    >
-                      保存钱包上限
-                    </button>
-                    <button
-                      className="secondary"
-                      disabled={busy || (wallet.address && !ownerConnected)}
-                      onClick={() => openContractActionCheckout('setAccEachLimit')}
-                      type="button"
-                    >
-                      保存单次上限
-                    </button>
-                  </div>
-                  <p>开启白名单或公开 Mint 前，请先确认 Owner 钱包已授权足够代币给 Mint 合约。</p>
+                  <MiniMetric label="模板" value={selectedTemplate.name} />
+                  <MiniMetric label="创建费" value={`${LAUNCH_FEE_BNB} BNB`} />
+                  <MiniMetric label="初始LP" value={`${formatBnbFromWei(liquidityParams.bnbAmount, 8)} BNB`} />
+                  <MiniMetric label="进池代币" value={`${formatUnits(liquidityParams.tokenAmount, 18, 4)} ${form.symbol || 'PEPE'}`} />
+                  <MiniMetric label="买/卖税" value={`${form.buyTax}% / ${form.sellTax}%`} />
+                  {isDividendTemplate(form.templateId) && <MiniMetric label="分红平台币" value={shortAddress(TOKEN_CONTRACT)} />}
+                  <MiniMetric label="LP接收" value={shortAddress(DEAD_ADDRESS)} />
+                  <MiniMetric label="尾号定制" value={form.vanitySuffix ? `...${normalizeHexSuffix(form.vanitySuffix)}` : '随机'} />
+                  <MiniMetric label="Token权限" value="部署后放弃Owner" />
+                  <MiniMetric label="接收钱包" value={form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '创建钱包'} />
                 </div>
               </>
             )}
@@ -2767,6 +2765,12 @@ function LaunchWorkbench({
                     <b>{shortAddress(lastResult.pairAddress)}</b>
                   </span>
                 )}
+                {lastResult.poolAddress && (
+                  <span>
+                    <em>Mint池</em>
+                    <b>{shortAddress(lastResult.poolAddress)}</b>
+                  </span>
+                )}
                 <div className="result-actions">
                   <a className="secondary" href={txUrl(lastResult.txHash)} target="_blank" rel="noreferrer">
                     <ExternalLink size={15} />
@@ -2780,6 +2784,12 @@ function LaunchWorkbench({
                     <a className="secondary" href={addressUrl(lastResult.tokenAddress)} target="_blank" rel="noreferrer">
                       <ExternalLink size={15} />
                       新币合约
+                    </a>
+                  )}
+                  {lastResult.poolAddress && (
+                    <a className="secondary" href={addressUrl(lastResult.poolAddress)} target="_blank" rel="noreferrer">
+                      <ExternalLink size={15} />
+                      Mint池
                     </a>
                   )}
                   <a
@@ -2827,12 +2837,17 @@ function LaunchWorkbench({
                           Pancake
                         </a>
                       )}
+                      {item.pool && !sameAddress(item.pool, ZERO_ADDRESS) && (
+                        <a href={addressUrl(item.pool)} target="_blank" rel="noreferrer">
+                          Mint池
+                        </a>
+                      )}
                     </div>
                   </article>
                 ))}
               </div>
             ) : (
-              <EmptyInline icon={Timer} title="暂无链上记录" text="V3 工厂部署后的新发射会从 getDeployments 分页读取；旧 V2 发射不会混在这里。" />
+              <EmptyInline icon={Timer} title="暂无链上记录" text="新发射会从 getDeployments 分页读取；模板维度也可按 getTemplateDeployments 查询。" />
             )}
           </Panel>
         </aside>
@@ -2845,16 +2860,19 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
   const factoryReady = isAddress(FACTORY_CONTRACT);
   const creator = form.owner && isAddress(form.owner) ? form.owner : wallet.address;
   const liquidityParams = getFixedLaunchLiquidity(form);
+  const mintParams = getFairMintParams(form);
   const dividendMode = isDividendTemplate(form.templateId);
+  const fairMintMode = isFairMintTemplate(form.templateId);
   const sourceUrl = 'https://github.com/ybc112/Pepefun/tree/main/contracts';
 
   return (
     <Panel title="自助发币工厂" icon={Settings}>
       <div className="factory-status">
-        <span className={`status-pill ${factoryReady ? 'green' : 'cyan'}`}>{factoryReady ? 'V3工厂已部署' : 'V3工厂待部署'}</span>
+        <span className={`status-pill ${factoryReady ? 'green' : 'cyan'}`}>{factoryReady ? '工厂已部署' : '工厂准备中'}</span>
         <span className="status-pill green">模板部署</span>
+        <span className="status-pill green">模板分页</span>
         <span className="status-pill green">CREATE2尾号</span>
-        <span className="status-pill green">LP进dead</span>
+        <span className="status-pill green">强制LP进dead</span>
       </div>
       <div className="factory-flow">
         {factoryFlow.map(([step, title, text]) => (
@@ -2866,13 +2884,13 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
         ))}
       </div>
       <div className="preview-lines factory-lines">
-        <MiniMetric label="新币模式" value={form.mode === 'direct' ? '直接发币' : '公平Mint池'} />
+        <MiniMetric label="新币模式" value={fairMintMode ? '白名单Mint池' : '直接发币'} />
         <MiniMetric label="模板协议" value={dividendMode ? '持币分红平台币' : selectedTemplate.name} />
-        <MiniMetric label="模板ID" value={getTemplateId(form.templateId) ? String(getTemplateId(form.templateId)) : '未接入'} />
+        <MiniMetric label="模板ID" value={getTemplateId(form.templateId) ? String(getTemplateId(form.templateId)) : '暂未开放'} />
         {dividendMode && <MiniMetric label="分红币" value={shortAddress(TOKEN_CONTRACT)} />}
         <MiniMetric label="创建者" value={creator ? shortAddress(creator) : '连接后填入'} />
-        <MiniMetric label="初始LP" value={`${formatBnbFromWei(liquidityParams.bnbAmount, 8)} BNB`} />
-        <MiniMetric label="进池代币" value={`${formatUnits(liquidityParams.tokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`} />
+        <MiniMetric label={fairMintMode ? 'Mint单价' : '初始LP'} value={fairMintMode ? `${formatBnbFromWei(mintParams.price, 8)} BNB` : `${formatBnbFromWei(liquidityParams.bnbAmount, 8)} BNB`} />
+        <MiniMetric label={fairMintMode ? '毕业进池代币' : '进池代币'} value={fairMintMode ? `${formatUnits(mintParams.liquidityTokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}` : `${formatUnits(liquidityParams.tokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`} />
         <MiniMetric label="LP接收" value={shortAddress(DEAD_ADDRESS)} />
         <MiniMetric label="尾号" value={form.vanitySuffix ? `...${normalizeHexSuffix(form.vanitySuffix)}` : '可选'} />
         <MiniMetric label="权限" value="部署后丢掉" />
@@ -2900,7 +2918,7 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
           </a>
         )}
       </div>
-      <p className="factory-note">V3 Factory 使用 deployFromTemplate / deployToken，支持地址预测、尾号校验、超额 BNB 退款、getDeployments / getCreatorTokens / getLaunchedTokens 分页查询。</p>
+      <p className="factory-note">发射工厂支持模板部署、白名单 Mint 池、尾号校验、超额 BNB 退款，以及全局、创建者、模板维度的链上分页查询。</p>
     </Panel>
   );
 }

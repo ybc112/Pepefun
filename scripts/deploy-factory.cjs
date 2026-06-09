@@ -21,7 +21,7 @@ function ensureDeployAccount() {
   }
 }
 
-async function maybeVerify(address, constructorArguments) {
+async function maybeVerify(address, constructorArguments, contract) {
   if (process.env.VERIFY_AFTER_DEPLOY !== 'true') return;
   if (!process.env.BSCSCAN_API_KEY) {
     console.log('Skip verify: BSCSCAN_API_KEY is empty.');
@@ -39,10 +39,12 @@ async function maybeVerify(address, constructorArguments) {
     }
   }
 
-  await hre.run('verify:verify', {
+  const verifyArgs = {
     address,
     constructorArguments,
-  });
+  };
+  if (contract) verifyArgs.contract = contract;
+  await hre.run('verify:verify', verifyArgs);
 }
 
 async function main() {
@@ -64,8 +66,31 @@ async function main() {
   console.log(`Pancake Router: ${pancakeRouter}`);
   console.log(`Default reward token: ${defaultRewardToken}`);
 
+  const FairMintPool = await hre.ethers.getContractFactory('FairMintPool');
+  const fairMintPoolImplementation = await FairMintPool.deploy();
+  await fairMintPoolImplementation.waitForDeployment();
+  const fairMintPoolImplementationAddress = await fairMintPoolImplementation.getAddress();
+  const fairMintDeploymentTx = fairMintPoolImplementation.deploymentTransaction();
+  console.log(`FairMintPool implementation deployed: ${fairMintPoolImplementationAddress}`);
+  console.log(`FairMintPool tx: ${fairMintDeploymentTx?.hash || ''}`);
+
+  const DividendMemeToken = await hre.ethers.getContractFactory('DividendMemeToken');
+  const dividendTokenImplementation = await DividendMemeToken.deploy();
+  await dividendTokenImplementation.waitForDeployment();
+  const dividendTokenImplementationAddress = await dividendTokenImplementation.getAddress();
+  const dividendDeploymentTx = dividendTokenImplementation.deploymentTransaction();
+  console.log(`DividendMemeToken implementation deployed: ${dividendTokenImplementationAddress}`);
+  console.log(`DividendMemeToken tx: ${dividendDeploymentTx?.hash || ''}`);
+
   const PepeLaunchFactory = await hre.ethers.getContractFactory('PepeLaunchFactory');
-  const factory = await PepeLaunchFactory.deploy(feeReceiver, creationFeeWei, pancakeRouter, defaultRewardToken);
+  const factory = await PepeLaunchFactory.deploy(
+    feeReceiver,
+    creationFeeWei,
+    pancakeRouter,
+    defaultRewardToken,
+    fairMintPoolImplementationAddress,
+    dividendTokenImplementationAddress,
+  );
   await factory.waitForDeployment();
 
   const address = await factory.getAddress();
@@ -73,13 +98,32 @@ async function main() {
   console.log(`PepeLaunchFactory deployed: ${address}`);
   console.log(`Deployment tx: ${deploymentTx?.hash || ''}`);
 
-  const constructorArguments = [feeReceiver, creationFeeWei.toString(), pancakeRouter, defaultRewardToken];
+  const constructorArguments = [
+    feeReceiver,
+    creationFeeWei.toString(),
+    pancakeRouter,
+    defaultRewardToken,
+    fairMintPoolImplementationAddress,
+    dividendTokenImplementationAddress,
+  ];
   const deploymentRecord = {
     network: hre.network.name,
     chainId: Number((await hre.ethers.provider.getNetwork()).chainId),
     contract: 'PepeLaunchFactory',
     address,
     deploymentTx: deploymentTx?.hash || '',
+    implementations: {
+      fairMintPool: {
+        contract: 'FairMintPool',
+        address: fairMintPoolImplementationAddress,
+        deploymentTx: fairMintDeploymentTx?.hash || '',
+      },
+      dividendMemeToken: {
+        contract: 'DividendMemeToken',
+        address: dividendTokenImplementationAddress,
+        deploymentTx: dividendDeploymentTx?.hash || '',
+      },
+    },
     deployer: deployer.address,
     constructorArguments,
     feeReceiver,
@@ -96,7 +140,28 @@ async function main() {
   fs.writeFileSync(outputPath, `${JSON.stringify(deploymentRecord, null, 2)}\n`);
   console.log(`Saved deployment record: ${outputPath}`);
 
-  await maybeVerify(address, [feeReceiver, creationFeeWei, pancakeRouter, defaultRewardToken]);
+  await maybeVerify(
+    fairMintPoolImplementationAddress,
+    [],
+    'contracts/templates/FairMintPool.sol:FairMintPool',
+  );
+  await maybeVerify(
+    dividendTokenImplementationAddress,
+    [],
+    'contracts/templates/DividendMemeToken.sol:DividendMemeToken',
+  );
+  await maybeVerify(
+    address,
+    [
+      feeReceiver,
+      creationFeeWei,
+      pancakeRouter,
+      defaultRewardToken,
+      fairMintPoolImplementationAddress,
+      dividendTokenImplementationAddress,
+    ],
+    'contracts/PepeLaunchFactory.sol:PepeLaunchFactory',
+  );
 }
 
 main().catch((error) => {
