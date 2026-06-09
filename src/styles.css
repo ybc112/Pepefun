@@ -997,6 +997,35 @@ fieldset {
   line-height: 1.7;
 }
 
+.live-mint-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  max-width: 780px;
+}
+
+.live-mint-strip span {
+  display: grid;
+  gap: 4px;
+  min-height: 58px;
+  align-content: center;
+  padding: 10px 12px;
+  border: 1px solid rgba(218, 255, 138, 0.12);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.live-mint-strip em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.live-mint-strip b {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
 .step-actions {
   display: grid;
   grid-template-columns: minmax(150px, auto) minmax(200px, 1fr);
@@ -1248,6 +1277,17 @@ legend {
 .whitelist-summary svg {
   flex: 0 0 auto;
   color: var(--lime);
+}
+
+.chain-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.chain-status-row .status-pill {
+  min-height: 30px;
 }
 
 .launch-summary {
@@ -1811,6 +1851,7 @@ legend {
   .flow-grid,
   .benefit-grid,
   .benefit-grid.compact,
+  .live-mint-strip,
   fieldset,
   .mode-cards,
   .template-picker,
