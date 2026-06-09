@@ -79,6 +79,7 @@ const FACTORY_VIEW_ABI = [
   'function getDeploymentsCount() view returns (uint256)',
   'function templateInitCodeHash(uint8 templateId, tuple(string name,string symbol,uint256 totalSupply,address receiver) tokenParams, tuple(uint256 tokenAmount,uint256 bnbAmount,uint256 minTokenAmount,uint256 minBnbAmount,uint256 deadline,bool enabled) liquidityParams, tuple(address rewardToken,address feeReceiver,uint16 buyFeeBps,uint16 sellFeeBps,bool renounceOwnerAfterCreate) dividendParams) view returns (bytes32)',
 ];
+const TOKEN_DEPLOYED_TOPIC = keccak256(toUtf8Bytes('TokenDeployed(address,address,address,uint8,bytes32,uint256,uint256,bytes32)'));
 const TEMPLATE_IDS = {
   standard: 1,
   'zero-tax': 2,
@@ -471,6 +472,11 @@ function decodeAddress(value) {
   return `0x${hex.slice(-40)}`;
 }
 
+function decodeTopicAddress(value) {
+  const address = decodeAddress(value);
+  return isAddress(address) ? address : '';
+}
+
 function decodeBool(value) {
   return hexToBigInt(value) !== 0n;
 }
@@ -737,6 +743,63 @@ async function publicRpcBatch(calls) {
   }
 
   throw new Error(lastError?.message || '链上参数读取失败');
+}
+
+async function publicRpcRequest(method, params) {
+  const body = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method,
+    params,
+  });
+  let lastError;
+
+  for (const rpcUrl of BSC_PUBLIC_RPCS) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+        signal: controller.signal,
+      });
+      const payload = await response.json();
+      if (payload?.error) throw new Error(payload.error.message || '链上请求失败');
+      return payload?.result || null;
+    } catch (error) {
+      lastError = error;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
+
+  throw new Error(lastError?.message || '链上请求失败');
+}
+
+async function waitForTransactionReceipt(txHash, attempts = 40) {
+  for (let index = 0; index < attempts; index += 1) {
+    const receipt = await publicRpcRequest('eth_getTransactionReceipt', [txHash]).catch(() => null);
+    if (receipt) return receipt;
+    await new Promise((resolve) => window.setTimeout(resolve, 3000));
+  }
+  return null;
+}
+
+function parseFactoryDeployment(receipt) {
+  const found = (receipt?.logs || []).find(
+    (log) =>
+      sameAddress(log.address, FACTORY_CONTRACT) &&
+      Array.isArray(log.topics) &&
+      log.topics[0]?.toLowerCase() === TOKEN_DEPLOYED_TOPIC.toLowerCase(),
+  );
+  if (!found) return null;
+  return {
+    creator: decodeTopicAddress(found.topics[1]),
+    tokenAddress: decodeTopicAddress(found.topics[2]),
+    pairAddress: decodeTopicAddress(found.topics[3]),
+    blockNumber: receipt.blockNumber ? Number(BigInt(receipt.blockNumber)) : null,
+  };
 }
 
 async function publicRpcCall(to, data) {
@@ -1240,12 +1303,19 @@ function App() {
       ],
     });
 
+    notify('发币交易已发出，正在等待链上确认并解析新币地址。');
+    const receipt = await waitForTransactionReceipt(txHash);
+    const deployment = parseFactoryDeployment(receipt);
+
     return {
       txHash,
       from: address,
       receiver: FACTORY_CONTRACT,
       purpose: isDividendTemplate(form.templateId) ? 'factoryCreateDividend' : 'factoryCreate',
-      tokenAddress: '',
+      tokenAddress: deployment?.tokenAddress || '',
+      pairAddress: deployment?.pairAddress || '',
+      blockNumber: deployment?.blockNumber || null,
+      confirmed: Boolean(receipt && receipt.status === '0x1'),
       salt,
       actionLabel: isDividendTemplate(form.templateId) ? '创建分红新币' : '创建新币',
     };
@@ -1735,8 +1805,14 @@ function App() {
       setLastResult(result);
       setCheckout(null);
       setChainRefresh((current) => current + 1);
-      if (checkout.type === 'factoryCreate') refreshFactoryRecords(true);
-      notify(checkout.type === 'whitelist' ? '白名单交易已发出，等待链上确认。' : '真实钱包交易已发出，等待链上确认。');
+      if (checkout.type === 'factoryCreate') await refreshFactoryRecords(true);
+      notify(
+        checkout.type === 'factoryCreate' && result.tokenAddress
+          ? '新币已发射，Token 地址已解析并写入发射记录。'
+          : checkout.type === 'whitelist'
+            ? '白名单交易已发出，等待链上确认。'
+            : '真实钱包交易已发出，等待链上确认。',
+      );
       setActivePage('launch');
       setLaunchStep('preview');
     } catch (error) {
@@ -2679,6 +2755,18 @@ function LaunchWorkbench({
                   <em>目标合约</em>
                   <b>{shortAddress(lastResult.receiver)}</b>
                 </span>
+                {lastResult.tokenAddress && (
+                  <span>
+                    <em>新币地址</em>
+                    <b>{shortAddress(lastResult.tokenAddress)}</b>
+                  </span>
+                )}
+                {lastResult.pairAddress && (
+                  <span>
+                    <em>交易对</em>
+                    <b>{shortAddress(lastResult.pairAddress)}</b>
+                  </span>
+                )}
                 <div className="result-actions">
                   <a className="secondary" href={txUrl(lastResult.txHash)} target="_blank" rel="noreferrer">
                     <ExternalLink size={15} />
@@ -2688,6 +2776,12 @@ function LaunchWorkbench({
                     <ExternalLink size={15} />
                     链上入口
                   </a>
+                  {lastResult.tokenAddress && (
+                    <a className="secondary" href={addressUrl(lastResult.tokenAddress)} target="_blank" rel="noreferrer">
+                      <ExternalLink size={15} />
+                      新币合约
+                    </a>
+                  )}
                   <a
                     className="secondary"
                     href={pancakeUrl(lastResult.tokenAddress || chainInfo.tokenAddress || TOKEN_CONTRACT)}
@@ -2738,7 +2832,7 @@ function LaunchWorkbench({
                 ))}
               </div>
             ) : (
-              <EmptyInline icon={Timer} title="暂无链上记录" text="V3 工厂部署后的新发射会从 getDeployments 分页读取出来。" />
+              <EmptyInline icon={Timer} title="暂无链上记录" text="V3 工厂部署后的新发射会从 getDeployments 分页读取；旧 V2 发射不会混在这里。" />
             )}
           </Panel>
         </aside>
