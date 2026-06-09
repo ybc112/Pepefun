@@ -30,7 +30,7 @@ This folder contains the first self-service launch factory draft for BSC.
 
 1. Review and audit `PepeLaunchFactory.sol`.
 2. Deploy `PepeLaunchFactory` on BSC with:
-   - `feeReceiver`: platform treasury wallet
+   - `feeReceiver`: platform mint/creation fee wallet (`0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939` by default)
    - `creationFee`: platform creation fee in wei
    - `router`: PancakeSwap V2 Router on BSC (`0x10ED43C718714eb63d5aA57B78B54704E256024E`)
 3. Verify the source code on BscScan.
@@ -38,6 +38,43 @@ This folder contains the first self-service launch factory draft for BSC.
 5. Add frontend ABI encoding for:
    - `createFixedSupplyToken`
    - `createFairMintLaunch`
+
+## Hardhat Deployment
+
+Create a local `.env` file from `.env.example`. Keep the private key only in `.env`.
+
+```env
+PRIVATE_KEY=
+BSC_RPC_URL=https://bsc-dataseed.binance.org/
+BSCSCAN_API_KEY=
+FACTORY_FEE_RECEIVER=0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939
+FACTORY_CREATION_FEE_BNB=0.01
+PANCAKE_ROUTER=0x10ED43C718714eb63d5aA57B78B54704E256024E
+VERIFY_AFTER_DEPLOY=false
+```
+
+Compile:
+
+```bash
+npm run hardhat:compile
+```
+
+Deploy to BSC:
+
+```bash
+npm run deploy:factory:bsc
+```
+
+The deploy script writes a local file under `deployments/` with the factory address, constructor arguments, and a ready-to-run verify command. `deployments/` is ignored by Git.
+
+To verify automatically after deployment, set:
+
+```env
+VERIFY_AFTER_DEPLOY=true
+VERIFY_CONFIRMATIONS=5
+```
+
+Or verify manually with the command printed in the deployment record.
 
 ## Notes
 

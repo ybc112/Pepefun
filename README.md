@@ -11,9 +11,18 @@ BSC 版公平 Meme 发射工具前端，使用 Vite + React 构建。页面聚�
 - 支持白名单、公开 Mint、单钱包上限、单次上限
 - 直接发币支持创建 PancakeSwap 初始池子，LP 直接打入 `0x...dEaD`
 - 新币合约不保留 Owner，Mint 池支持创建后立即丢权限
-- 前端已加入“自助发币工厂”方案面板，并能在配置 `VITE_FACTORY_CONTRACT` 后打包真实创建交易
+- 前端已加入“自助发币工厂”方案面板，默认调用已部署 Factory，也可用 `VITE_FACTORY_CONTRACT` 覆盖
 
 上线真实“别人自己发新币”前，还需要先审计并部署 Factory 合约。部署构造参数需要 `feeReceiver`、`creationFee` 和 PancakeSwap V2 Router：`0x10ED43C718714eb63d5aA57B78B54704E256024E`。
+
+当前 Hardhat 部署脚本默认收 mint/创建费地址为：`0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939`。
+
+当前前端默认 Factory 地址为：`0x5026087F558Ce67eAa90501818Ad4fbCF284021c`。
+
+```bash
+npm run hardhat:compile
+npm run deploy:factory:bsc
+```
 
 ## 本地运行
 
@@ -43,7 +52,7 @@ npm run deploy:cloudflare
 
 ```env
 VITE_PAYMENT_RECEIVER=
-VITE_FACTORY_CONTRACT=
+VITE_FACTORY_CONTRACT=0x5026087F558Ce67eAa90501818Ad4fbCF284021c
 VITE_MINT_CONTRACT=
 VITE_TOKEN_CONTRACT=
 ```

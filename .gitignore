@@ -1,5 +1,8 @@
 node_modules/
 dist/
+artifacts/
+cache/
+deployments/
 .env
 .env.local
 .env.*.local
