@@ -1,15 +1,22 @@
 # PEPE Launch Factory
 
-This folder contains the first self-service launch factory draft for BSC.
+This folder contains the self-service launch factory contracts for BSC.
 
 ## Contracts
 
 - `PepeLaunchFactory`
   - Creates a fixed-supply BEP20 token.
-  - Creates a fixed-supply BEP20 token plus a `FairMintPool`.
+  - Creates a dividend BEP20 token that can swap collected project-token fees into the platform reward token.
   - Collects a configurable creation fee.
   - Adds optional PancakeSwap V2 liquidity and sends LP tokens directly to `0x...dEaD`.
-  - Emits token and launch-pool addresses for the frontend.
+  - Emits created token addresses for the frontend.
+
+- `DividendMemeToken`
+  - Fixed-supply BEP20-style token with buy/sell fee support.
+  - Maximum buy fee and sell fee are capped at 10%.
+  - Swaps collected fees through PancakeSwap into the configured reward token.
+  - Uses dividend accounting so holders can claim reward tokens.
+  - No blacklist, sell-blocking, hidden owner, or upgrade logic.
 
 - `PepeMemeToken`
   - Minimal fixed-supply BEP20-style token.
@@ -33,11 +40,12 @@ This folder contains the first self-service launch factory draft for BSC.
    - `feeReceiver`: platform mint/creation fee wallet (`0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939` by default)
    - `creationFee`: platform creation fee in wei
    - `router`: PancakeSwap V2 Router on BSC (`0x10ED43C718714eb63d5aA57B78B54704E256024E`)
+   - `defaultRewardToken`: platform reward token (`0xb3b2afb0de33d4d80a20839662bc99c6b360eeee` by default)
 3. Verify the source code on BscScan.
 4. Connect the deployed factory address to the frontend.
 5. Add frontend ABI encoding for:
    - `createFixedSupplyToken`
-   - `createFairMintLaunch`
+   - `createDividendToken`
 
 ## Hardhat Deployment
 
@@ -50,6 +58,7 @@ BSCSCAN_API_KEY=
 FACTORY_FEE_RECEIVER=0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939
 FACTORY_CREATION_FEE_BNB=0.05
 PANCAKE_ROUTER=0x10ED43C718714eb63d5aA57B78B54704E256024E
+DEFAULT_REWARD_TOKEN=0xb3b2afb0de33d4d80a20839662bc99c6b360eeee
 VERIFY_AFTER_DEPLOY=false
 ```
 
@@ -78,4 +87,10 @@ Or verify manually with the command printed in the deployment record.
 
 ## Notes
 
-This is a factory blueprint, not yet audited production bytecode. The frontend already encodes `createFixedSupplyToken` for the current factory draft and prevents fake token-deployment transactions until a reviewed factory address is configured.
+Factory V2 deployed on BSC:
+
+- Address: `0x7aD123deaf587cF6763Ef6043A453a0D5b852F8d`
+- BscScan: `https://bscscan.com/address/0x7aD123deaf587cF6763Ef6043A453a0D5b852F8d#code`
+- Creation fee: `0.05 BNB`
+
+The frontend encodes `createFixedSupplyToken` and `createDividendToken` for the deployed V2 factory. The standalone `FairMintPool` source remains in this file for review/reference, while the current V2 factory frontend path does not deploy new mint pools.

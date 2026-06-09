@@ -4,20 +4,24 @@ BSC 版公平 Meme 发射工具前端，使用 Vite + React 构建。页面聚�
 
 ## 自助发币工厂
 
-仓库已加入 `contracts/PepeLaunchFactory.sol` 作为第一版发币工厂草案：
+仓库已加入 `contracts/PepeLaunchFactory.sol` 作为 BSC 发币工厂：
 
 - `createFixedSupplyToken`: 创建固定总量 BEP20
-- `createFairMintLaunch`: 创建 BEP20 + 公平 Mint 池
-- 支持白名单、公开 Mint、单钱包上限、单次上限
+- `createDividendToken`: 创建持币分红平台币模板，买卖税最高 10%，手续费换成平台币后由持币人主动领取
+- 现有 Mint 合约仍可在前端 Mint 面板使用，V2 工厂前端路径专注直接发币和分红模板
 - 直接发币支持创建 PancakeSwap 初始池子，LP 直接打入 `0x...dEaD`
-- 新币合约不保留 Owner，Mint 池支持创建后立即丢权限
+- 新币支持创建后立即丢权限
 - 前端已加入“自助发币工厂”方案面板，默认调用已部署 Factory，也可用 `VITE_FACTORY_CONTRACT` 覆盖
 
-上线真实“别人自己发新币”前，还需要先审计并部署 Factory 合约。部署构造参数需要 `feeReceiver`、`creationFee` 和 PancakeSwap V2 Router：`0x10ED43C718714eb63d5aA57B78B54704E256024E`。
+部署构造参数需要 `feeReceiver`、`creationFee`、PancakeSwap V2 Router 和默认分红平台币地址。
 
 当前 Hardhat 部署脚本默认收 mint/创建费地址为：`0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939`。
 
-当前前端默认 Factory 地址为：`0x5026087F558Ce67eAa90501818Ad4fbCF284021c`。
+当前前端默认 Factory V2 地址为：`0x7aD123deaf587cF6763Ef6043A453a0D5b852F8d`。
+
+Factory V2 已在 BscScan 开源验证：`https://bscscan.com/address/0x7aD123deaf587cF6763Ef6043A453a0D5b852F8d#code`。
+
+默认分红平台币地址为：`0xb3b2afb0de33d4d80a20839662bc99c6b360eeee`。
 
 当前 Factory 创建费为：`0.05 BNB`。
 
@@ -54,7 +58,7 @@ npm run deploy:cloudflare
 
 ```env
 VITE_PAYMENT_RECEIVER=
-VITE_FACTORY_CONTRACT=0x5026087F558Ce67eAa90501818Ad4fbCF284021c
+VITE_FACTORY_CONTRACT=0x7aD123deaf587cF6763Ef6043A453a0D5b852F8d
 VITE_MINT_CONTRACT=
 VITE_TOKEN_CONTRACT=
 ```

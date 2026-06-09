@@ -4,6 +4,7 @@ const hre = require('hardhat');
 
 const DEFAULT_FEE_RECEIVER = '0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939';
 const DEFAULT_PANCAKE_ROUTER = '0x10ED43C718714eb63d5aA57B78B54704E256024E';
+const DEFAULT_REWARD_TOKEN = '0xb3b2afb0de33d4d80a20839662bc99c6b360eeee';
 
 function readAddress(name, fallback) {
   const value = process.env[name] || fallback;
@@ -52,6 +53,7 @@ async function main() {
 
   const feeReceiver = readAddress('FACTORY_FEE_RECEIVER', DEFAULT_FEE_RECEIVER);
   const pancakeRouter = readAddress('PANCAKE_ROUTER', DEFAULT_PANCAKE_ROUTER);
+  const defaultRewardToken = readAddress('DEFAULT_REWARD_TOKEN', DEFAULT_REWARD_TOKEN);
   const creationFeeBnb = process.env.FACTORY_CREATION_FEE_BNB || '0.05';
   const creationFeeWei = hre.ethers.parseEther(creationFeeBnb);
 
@@ -60,9 +62,10 @@ async function main() {
   console.log(`Fee receiver: ${feeReceiver}`);
   console.log(`Creation fee: ${creationFeeBnb} BNB (${creationFeeWei.toString()} wei)`);
   console.log(`Pancake Router: ${pancakeRouter}`);
+  console.log(`Default reward token: ${defaultRewardToken}`);
 
   const PepeLaunchFactory = await hre.ethers.getContractFactory('PepeLaunchFactory');
-  const factory = await PepeLaunchFactory.deploy(feeReceiver, creationFeeWei, pancakeRouter);
+  const factory = await PepeLaunchFactory.deploy(feeReceiver, creationFeeWei, pancakeRouter, defaultRewardToken);
   await factory.waitForDeployment();
 
   const address = await factory.getAddress();
@@ -70,7 +73,7 @@ async function main() {
   console.log(`PepeLaunchFactory deployed: ${address}`);
   console.log(`Deployment tx: ${deploymentTx?.hash || ''}`);
 
-  const constructorArguments = [feeReceiver, creationFeeWei.toString(), pancakeRouter];
+  const constructorArguments = [feeReceiver, creationFeeWei.toString(), pancakeRouter, defaultRewardToken];
   const deploymentRecord = {
     network: hre.network.name,
     chainId: Number((await hre.ethers.provider.getNetwork()).chainId),
@@ -82,6 +85,7 @@ async function main() {
     feeReceiver,
     creationFeeWei: creationFeeWei.toString(),
     pancakeRouter,
+    defaultRewardToken,
     deployedAt: new Date().toISOString(),
     verifyCommand: `npx hardhat verify --network ${hre.network.name} ${address} ${constructorArguments.join(' ')}`,
   };

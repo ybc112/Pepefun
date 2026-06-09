@@ -29,9 +29,10 @@ import pepeArenaArt from './assets/pepe-arena.svg';
 const STORAGE_KEY = 'pepe-launch-arena-draft-v5';
 const LAUNCH_FEE_BNB = '0.05';
 const PAYMENT_RECEIVER = import.meta.env.VITE_PAYMENT_RECEIVER || '';
-const FACTORY_CONTRACT = import.meta.env.VITE_FACTORY_CONTRACT || '0x5026087F558Ce67eAa90501818Ad4fbCF284021c';
+const FACTORY_CONTRACT = import.meta.env.VITE_FACTORY_CONTRACT || '0x7aD123deaf587cF6763Ef6043A453a0D5b852F8d';
 const MINT_CONTRACT = import.meta.env.VITE_MINT_CONTRACT || '0x17877D1e85390937c461b0A7886Ad75bAAC9F1dA';
 const TOKEN_CONTRACT = import.meta.env.VITE_TOKEN_CONTRACT || '0xb3b2afb0de33d4d80a20839662bc99c6b360eeee';
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD';
 const BSC_PUBLIC_RPCS = ['https://bsc-mainnet.public.blastapi.io', 'https://bsc-rpc.publicnode.com', 'https://bsc.drpc.org'];
 const MINT_SELECTORS = {
@@ -70,7 +71,7 @@ const ERC20_SELECTORS = {
 };
 const FACTORY_SELECTORS = {
   createFixedSupplyToken: '0xb08e7f1e',
-  createFairMintLaunch: '0x4baf0432',
+  createDividendToken: '0x58ed0156',
   creationFee: '0xdce0b4e4',
 };
 const DEFAULT_CHAIN_INFO = {
@@ -147,8 +148,8 @@ const templates = [
   {
     id: 'reflection',
     name: '反射分红模板',
-    tag: '持币生BNB',
-    text: '交易税进入分红池，持币地址按比例获得 BNB。',
+    tag: '持币生平台币',
+    text: '交易税累积分红池，换成平台币后持币地址可按比例领取。',
   },
   {
     id: 'fair-mint',
@@ -558,6 +559,16 @@ function encodeLiquidityParamsTuple({ tokenAmount, bnbAmount, minTokenAmount, mi
   ].join('');
 }
 
+function encodeDividendParamsTuple({ rewardToken, feeReceiver, buyFeeBps, sellFeeBps, renounceOwnerAfterCreate }) {
+  return [
+    pad64(rewardToken),
+    pad64(feeReceiver),
+    pad64(BigInt(buyFeeBps).toString(16)),
+    pad64(BigInt(sellFeeBps).toString(16)),
+    pad64(renounceOwnerAfterCreate ? '1' : '0'),
+  ].join('');
+}
+
 function encodeCreateFixedSupplyTokenCall(tokenParams, liquidityParams, metadataURI) {
   const tokenTuple = encodeTokenParamsTuple(tokenParams);
   const liquidityTuple = encodeLiquidityParamsTuple(liquidityParams);
@@ -569,6 +580,25 @@ function encodeCreateFixedSupplyTokenCall(tokenParams, liquidityParams, metadata
     FACTORY_SELECTORS.createFixedSupplyToken,
     pad64(tokenOffset.toString(16)),
     liquidityTuple,
+    pad64(metadataOffset.toString(16)),
+    tokenTuple,
+    metadataData,
+  ].join('');
+}
+
+function encodeCreateDividendTokenCall(tokenParams, liquidityParams, dividendParams, metadataURI) {
+  const tokenTuple = encodeTokenParamsTuple(tokenParams);
+  const liquidityTuple = encodeLiquidityParamsTuple(liquidityParams);
+  const dividendTuple = encodeDividendParamsTuple(dividendParams);
+  const metadataData = encodeAbiString(metadataURI);
+  const tokenOffset = 13n * 32n;
+  const metadataOffset = tokenOffset + BigInt(tokenTuple.length / 2);
+
+  return [
+    FACTORY_SELECTORS.createDividendToken,
+    pad64(tokenOffset.toString(16)),
+    liquidityTuple,
+    dividendTuple,
     pad64(metadataOffset.toString(16)),
     tokenTuple,
     metadataData,
@@ -597,6 +627,14 @@ function getFixedLaunchLiquidity(form) {
     minBnbAmount: 0n,
     deadline: BigInt(Math.floor(Date.now() / 1000) + 1800),
   };
+}
+
+function isDividendTemplate(templateId) {
+  return templateId === 'reflection' || templateId === 'dividend-token';
+}
+
+function percentToBps(value) {
+  return Math.max(0, Math.round(numberValue(value) * 100));
 }
 
 function getMetadataURI(form) {
@@ -1001,16 +1039,26 @@ function App() {
     const receiver = form.owner && isAddress(form.owner) ? form.owner : address;
     const totalSupply = decimalToUnits(form.totalSupply, 18);
     const liquidityParams = getFixedLaunchLiquidity(form);
-    const data = encodeCreateFixedSupplyTokenCall(
-      {
-        name: form.tokenName.trim(),
-        symbol: cleanSymbol(form.symbol),
-        totalSupply,
-        receiver,
-      },
-      liquidityParams,
-      getMetadataURI(form),
-    );
+    const tokenParams = {
+      name: form.tokenName.trim(),
+      symbol: cleanSymbol(form.symbol),
+      totalSupply,
+      receiver,
+    };
+    const data = isDividendTemplate(form.templateId)
+      ? encodeCreateDividendTokenCall(
+          tokenParams,
+          liquidityParams,
+          {
+            rewardToken: TOKEN_CONTRACT,
+            feeReceiver: ZERO_ADDRESS,
+            buyFeeBps: percentToBps(form.buyTax),
+            sellFeeBps: percentToBps(form.sellTax),
+            renounceOwnerAfterCreate: form.renounceOwner,
+          },
+          getMetadataURI(form),
+        )
+      : encodeCreateFixedSupplyTokenCall(tokenParams, liquidityParams, getMetadataURI(form));
     const expectedValue =
       currentCheckout.valueWei && currentCheckout.valueWei !== '0'
         ? BigInt(currentCheckout.valueWei)
@@ -1032,9 +1080,9 @@ function App() {
       txHash,
       from: address,
       receiver: FACTORY_CONTRACT,
-      purpose: 'factoryCreate',
+      purpose: isDividendTemplate(form.templateId) ? 'factoryCreateDividend' : 'factoryCreate',
       tokenAddress: '',
-      actionLabel: '创建新币',
+      actionLabel: isDividendTemplate(form.templateId) ? '创建分红新币' : '创建新币',
     };
   }
 
@@ -1163,6 +1211,11 @@ function App() {
     if (numberValue(form.totalSupply) <= 0) return '代币总量必须大于 0';
     if (form.owner.trim() && !isAddress(form.owner)) return '项目归属钱包地址格式不正确';
     if (numberValue(form.buyTax) < 0 || numberValue(form.sellTax) < 0) return '税率不能小于 0';
+    if (isDividendTemplate(form.templateId)) {
+      if (!isAddress(TOKEN_CONTRACT)) return '平台币地址未配置，暂不能创建分红模板';
+      if (percentToBps(form.buyTax) + percentToBps(form.sellTax) <= 0) return '分红模板需要设置买税或卖税，用来累积分红池';
+      if (percentToBps(form.buyTax) > 1000 || percentToBps(form.sellTax) > 1000) return '分红模板单边税率不能超过 10%';
+    }
     if (form.mode === 'direct' && numberValue(form.initialLiquidity) <= 0) return '初始流动性必须大于 0，LP 会直接打入 dead 黑洞';
     if (form.mode === 'direct' && numberValue(form.launchPrice) <= 0) return '首发价格必须大于 0，用来计算进池代币数量';
     if (!form.deadLiquidity) return '平台规则要求底池 LP 全部打入 dead 黑洞';
@@ -1279,25 +1332,33 @@ function App() {
 
     const whitelistInfo = parseWhitelist(form.whitelistAddresses);
     const liquidityParams = getFixedLaunchLiquidity(form);
+    const dividendMode = isDividendTemplate(form.templateId);
     const totalValueWei = factoryReady ? factoryFeeWei + liquidityParams.bnbAmount : 0n;
     setCheckout({
       type: factoryReady ? 'factoryCreate' : 'factoryPlan',
       title: `发币工厂方案：${form.tokenName || 'Pepe Token'}`,
       description: factoryReady
-        ? '这次会调用发币工厂合约创建新的固定总量 BEP20。请在钱包里核对工厂地址、创建费和网络。'
+        ? `这次会调用发币工厂合约创建新的${dividendMode ? '持币分红平台币' : '固定总量 BEP20'}。请在钱包里核对工厂地址、创建费和网络。`
         : '自助发新币需要先部署发币工厂合约。当前不会拉起钱包转账，先把你的发币参数整理成工厂部署方案。',
       amountBnb: factoryReady ? formatBnbFromWei(totalValueWei, 8) : '0',
       valueWei: totalValueWei.toString(),
-      actionLabel: factoryReady ? '确认创建新币' : '继续配置参数',
+      actionLabel: factoryReady ? (dividendMode ? '确认创建分红币' : '确认创建新币') : '继续配置参数',
       summary: [
         ['工厂状态', factoryReady ? '已部署，可发真实创建交易' : '合约草案已加入仓库'],
         ['工厂合约', factoryReady ? shortAddress(FACTORY_CONTRACT) : '待部署'],
         ['发射模式', selectedMode.title],
         ['合约模板', selectedTemplate.name],
+        ['创建方法', dividendMode ? '持币分红平台币' : '标准固定总量'],
         ['代币总量', formatNumber(form.totalSupply, 0)],
         ['创建费', factoryReady ? `${formatBnbFromWei(factoryFeeWei, 8)} BNB` : '部署后链上读取'],
         ['初始流动性', `${formatBnbFromWei(liquidityParams.bnbAmount, 8)} BNB`],
         ['进池代币', `${formatUnits(liquidityParams.tokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`],
+        ...(dividendMode
+          ? [
+              ['分红平台币', shortAddress(TOKEN_CONTRACT)],
+              ['买/卖税', `${form.buyTax}% / ${form.sellTax}%`],
+            ]
+          : []),
         ['LP接收', shortAddress(DEAD_ADDRESS)],
         ['权限', 'Token无Owner，LP已黑洞'],
         ['接收钱包', form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '确认时连接'],
@@ -2417,6 +2478,7 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
   const factoryReady = isAddress(FACTORY_CONTRACT);
   const creator = form.owner && isAddress(form.owner) ? form.owner : wallet.address;
   const liquidityParams = getFixedLaunchLiquidity(form);
+  const dividendMode = isDividendTemplate(form.templateId);
   const sourceUrl = 'https://github.com/ybc112/Pepefun/tree/main/contracts';
 
   return (
@@ -2437,7 +2499,8 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
       </div>
       <div className="preview-lines factory-lines">
         <MiniMetric label="新币模式" value={form.mode === 'direct' ? '直接发币' : '公平Mint池'} />
-        <MiniMetric label="模板协议" value={selectedTemplate.name} />
+        <MiniMetric label="模板协议" value={dividendMode ? '持币分红平台币' : selectedTemplate.name} />
+        {dividendMode && <MiniMetric label="分红币" value={shortAddress(TOKEN_CONTRACT)} />}
         <MiniMetric label="创建者" value={creator ? shortAddress(creator) : '连接后填入'} />
         <MiniMetric label="初始LP" value={`${formatBnbFromWei(liquidityParams.bnbAmount, 8)} BNB`} />
         <MiniMetric label="进池代币" value={`${formatUnits(liquidityParams.tokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`} />
