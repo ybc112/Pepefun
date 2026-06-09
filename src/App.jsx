@@ -68,6 +68,11 @@ const ERC20_SELECTORS = {
   balanceOf: '0x70a08231',
   approve: '0x095ea7b3',
 };
+const FACTORY_SELECTORS = {
+  createFixedSupplyToken: '0xb08e7f1e',
+  createFairMintLaunch: '0x4baf0432',
+  creationFee: '0xdce0b4e4',
+};
 const DEFAULT_CHAIN_INFO = {
   loading: true,
   error: '',
@@ -224,6 +229,13 @@ const flowSteps = [
   ['04', '登上擂台', '确认支付并拉起钱包，等待链上交易回执。', Rocket],
 ];
 
+const factoryFlow = [
+  ['01', '部署 Token', '按名称、符号、总量创建标准 BEP20，源码公开可验证。'],
+  ['02', 'LP进黑洞', '初始池子由 Factory 加入 PancakeSwap，LP 直接发到 dead。'],
+  ['03', '权限丢掉', '新币无 Owner；Mint 池可在创建时写入名单并直接 renounce。'],
+  ['04', '链上输出', '输出 Token、Mint 池、BscScan、PancakeSwap 和 dead 证明。'],
+];
+
 const launchWizardSteps = [
   { id: 'mode', label: '模式', title: '发射模式' },
   { id: 'basic', label: '基础', title: '基础信息' },
@@ -302,7 +314,16 @@ function loadDraft() {
   if (typeof window === 'undefined') return defaultForm;
   try {
     const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || 'null');
-    if (saved?.version === 5) return { ...defaultForm, ...saved.form, mode: 'mint', templateId: saved.form?.templateId || defaultForm.templateId };
+    if (saved?.version === 5) {
+      return {
+        ...defaultForm,
+        ...saved.form,
+        mode: 'mint',
+        templateId: saved.form?.templateId || defaultForm.templateId,
+        deadLiquidity: true,
+        renounceOwner: true,
+      };
+    }
   } catch {
     window.localStorage.removeItem(STORAGE_KEY);
   }
@@ -493,6 +514,97 @@ function encodeApproveCall(spender, amount) {
   return `${ERC20_SELECTORS.approve}${pad64(spender)}${pad64(amount.toString(16))}`;
 }
 
+function utf8ToHex(value) {
+  return Array.from(new TextEncoder().encode(String(value || '')))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function padHexData(hex) {
+  const clean = stripHex(hex);
+  const paddedLength = Math.ceil(clean.length / 64) * 64;
+  return clean.padEnd(paddedLength, '0');
+}
+
+function encodeAbiString(value) {
+  const hex = utf8ToHex(value);
+  return `${pad64((hex.length / 2).toString(16))}${padHexData(hex)}`;
+}
+
+function encodeTokenParamsTuple({ name, symbol, totalSupply, receiver }) {
+  const nameData = encodeAbiString(name);
+  const symbolData = encodeAbiString(symbol);
+  const nameOffset = 4n * 32n;
+  const symbolOffset = nameOffset + BigInt(nameData.length / 2);
+
+  return [
+    pad64(nameOffset.toString(16)),
+    pad64(symbolOffset.toString(16)),
+    pad64(totalSupply.toString(16)),
+    pad64(receiver),
+    nameData,
+    symbolData,
+  ].join('');
+}
+
+function encodeLiquidityParamsTuple({ tokenAmount, bnbAmount, minTokenAmount, minBnbAmount, deadline, enabled }) {
+  return [
+    pad64(tokenAmount.toString(16)),
+    pad64(bnbAmount.toString(16)),
+    pad64(minTokenAmount.toString(16)),
+    pad64(minBnbAmount.toString(16)),
+    pad64(deadline.toString(16)),
+    pad64(enabled ? '1' : '0'),
+  ].join('');
+}
+
+function encodeCreateFixedSupplyTokenCall(tokenParams, liquidityParams, metadataURI) {
+  const tokenTuple = encodeTokenParamsTuple(tokenParams);
+  const liquidityTuple = encodeLiquidityParamsTuple(liquidityParams);
+  const metadataData = encodeAbiString(metadataURI);
+  const tokenOffset = 8n * 32n;
+  const metadataOffset = tokenOffset + BigInt(tokenTuple.length / 2);
+
+  return [
+    FACTORY_SELECTORS.createFixedSupplyToken,
+    pad64(tokenOffset.toString(16)),
+    liquidityTuple,
+    pad64(metadataOffset.toString(16)),
+    tokenTuple,
+    metadataData,
+  ].join('');
+}
+
+function getFixedLaunchLiquidity(form) {
+  const bnbAmount = decimalToUnits(form.initialLiquidity, 18);
+  const launchPriceWei = decimalToUnits(form.launchPrice, 18);
+  if (bnbAmount <= 0n || launchPriceWei <= 0n) {
+    return {
+      enabled: false,
+      bnbAmount: 0n,
+      tokenAmount: 0n,
+      minTokenAmount: 0n,
+      minBnbAmount: 0n,
+      deadline: 0n,
+    };
+  }
+
+  return {
+    enabled: true,
+    bnbAmount,
+    tokenAmount: (bnbAmount * 10n ** 18n) / launchPriceWei,
+    minTokenAmount: 0n,
+    minBnbAmount: 0n,
+    deadline: BigInt(Math.floor(Date.now() / 1000) + 1800),
+  };
+}
+
+function getMetadataURI(form) {
+  const website = String(form.website || '').trim();
+  if (/^https?:\/\//i.test(website)) return website;
+  return '';
+}
+
 async function publicRpcBatch(calls) {
   const body = JSON.stringify(
     calls.map((call, index) => ({
@@ -552,6 +664,12 @@ async function ethCall(provider, to, data) {
     }
   }
   return publicRpcCall(to, data);
+}
+
+async function getFactoryCreationFeeWei() {
+  if (!isAddress(FACTORY_CONTRACT)) return 0n;
+  const raw = await publicRpcCall(FACTORY_CONTRACT, FACTORY_SELECTORS.creationFee);
+  return hexToBigInt(raw);
 }
 
 function mintStatusLabel(info) {
@@ -788,6 +906,10 @@ function App() {
   }, [wallet.address, chainRefresh]);
 
   function update(field, value) {
+    if (field === 'deadLiquidity' || field === 'renounceOwner') {
+      setForm((current) => ({ ...current, [field]: true }));
+      return;
+    }
     setForm((current) => ({ ...current, [field]: value }));
   }
 
@@ -868,6 +990,52 @@ function App() {
       ],
     });
     return { txHash, from: address, receiver, purpose };
+  }
+
+  async function requestFactoryCreate(currentCheckout) {
+    const { provider, address } = await ensureWallet();
+    if (!isAddress(FACTORY_CONTRACT)) {
+      throw new Error('发币工厂合约还没有接入，暂不能创建新币。');
+    }
+
+    const receiver = form.owner && isAddress(form.owner) ? form.owner : address;
+    const totalSupply = decimalToUnits(form.totalSupply, 18);
+    const liquidityParams = getFixedLaunchLiquidity(form);
+    const data = encodeCreateFixedSupplyTokenCall(
+      {
+        name: form.tokenName.trim(),
+        symbol: cleanSymbol(form.symbol),
+        totalSupply,
+        receiver,
+      },
+      liquidityParams,
+      getMetadataURI(form),
+    );
+    const expectedValue =
+      currentCheckout.valueWei && currentCheckout.valueWei !== '0'
+        ? BigInt(currentCheckout.valueWei)
+        : (await getFactoryCreationFeeWei()) + liquidityParams.bnbAmount;
+
+    const txHash = await provider.request({
+      method: 'eth_sendTransaction',
+      params: [
+        {
+          from: address,
+          to: FACTORY_CONTRACT,
+          value: weiHex(expectedValue),
+          data,
+        },
+      ],
+    });
+
+    return {
+      txHash,
+      from: address,
+      receiver: FACTORY_CONTRACT,
+      purpose: 'factoryCreate',
+      tokenAddress: '',
+      actionLabel: '创建新币',
+    };
   }
 
   async function requestLiveMint(currentCheckout) {
@@ -995,7 +1163,16 @@ function App() {
     if (numberValue(form.totalSupply) <= 0) return '代币总量必须大于 0';
     if (form.owner.trim() && !isAddress(form.owner)) return '项目归属钱包地址格式不正确';
     if (numberValue(form.buyTax) < 0 || numberValue(form.sellTax) < 0) return '税率不能小于 0';
-    if (form.mode === 'direct' && numberValue(form.initialLiquidity) < 0) return '初始流动性不能小于 0';
+    if (form.mode === 'direct' && numberValue(form.initialLiquidity) <= 0) return '初始流动性必须大于 0，LP 会直接打入 dead 黑洞';
+    if (form.mode === 'direct' && numberValue(form.launchPrice) <= 0) return '首发价格必须大于 0，用来计算进池代币数量';
+    if (!form.deadLiquidity) return '平台规则要求底池 LP 全部打入 dead 黑洞';
+    if (!form.renounceOwner) return '平台规则要求发射后放弃 Owner 权限';
+    if (form.mode === 'direct') {
+      const totalSupply = decimalToUnits(form.totalSupply, 18);
+      const liquidityParams = getFixedLaunchLiquidity(form);
+      if (!liquidityParams.enabled || liquidityParams.tokenAmount <= 0n) return '初始池子的代币数量计算失败，请检查流动性和首发价格';
+      if (liquidityParams.tokenAmount > totalSupply) return '按当前首发价格计算，进池代币数量超过了总量';
+    }
     const whitelistInfo = parseWhitelist(form.whitelistAddresses);
     if (form.whitelist && whitelistInfo.valid.length === 0) return '已开启白名单，请至少添加 1 个有效钱包地址';
     if (form.whitelist && whitelistInfo.invalid.length > 0) return '白名单里有格式错误的钱包地址，请先修正';
@@ -1079,6 +1256,52 @@ function App() {
         ['Owner', shortAddress(chainInfo.owner)],
         ['白名单地址', `${whitelistInfo.valid.length} 个`],
         ['错误地址', `${whitelistInfo.invalid.length} 个`],
+      ],
+    });
+  }
+
+  async function openFactoryPlanCheckout() {
+    const validation = validateLaunch();
+    if (validation) {
+      notify(validation);
+      return;
+    }
+
+    const factoryReady = isAddress(FACTORY_CONTRACT);
+    let factoryFeeWei = 0n;
+    if (factoryReady) {
+      try {
+        factoryFeeWei = await getFactoryCreationFeeWei();
+      } catch {
+        notify('工厂费用读取失败，确认时会再次按链上费用读取。');
+      }
+    }
+
+    const whitelistInfo = parseWhitelist(form.whitelistAddresses);
+    const liquidityParams = getFixedLaunchLiquidity(form);
+    const totalValueWei = factoryReady ? factoryFeeWei + liquidityParams.bnbAmount : 0n;
+    setCheckout({
+      type: factoryReady ? 'factoryCreate' : 'factoryPlan',
+      title: `发币工厂方案：${form.tokenName || 'Pepe Token'}`,
+      description: factoryReady
+        ? '这次会调用发币工厂合约创建新的固定总量 BEP20。请在钱包里核对工厂地址、创建费和网络。'
+        : '自助发新币需要先部署发币工厂合约。当前不会拉起钱包转账，先把你的发币参数整理成工厂部署方案。',
+      amountBnb: factoryReady ? formatBnbFromWei(totalValueWei, 8) : '0',
+      valueWei: totalValueWei.toString(),
+      actionLabel: factoryReady ? '确认创建新币' : '继续配置参数',
+      summary: [
+        ['工厂状态', factoryReady ? '已部署，可发真实创建交易' : '合约草案已加入仓库'],
+        ['工厂合约', factoryReady ? shortAddress(FACTORY_CONTRACT) : '待部署'],
+        ['发射模式', selectedMode.title],
+        ['合约模板', selectedTemplate.name],
+        ['代币总量', formatNumber(form.totalSupply, 0)],
+        ['创建费', factoryReady ? `${formatBnbFromWei(factoryFeeWei, 8)} BNB` : '部署后链上读取'],
+        ['初始流动性', `${formatBnbFromWei(liquidityParams.bnbAmount, 8)} BNB`],
+        ['进池代币', `${formatUnits(liquidityParams.tokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`],
+        ['LP接收', shortAddress(DEAD_ADDRESS)],
+        ['权限', 'Token无Owner，LP已黑洞'],
+        ['接收钱包', form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '确认时连接'],
+        ['白名单', form.whitelist ? `${whitelistInfo.valid.length} 个地址` : '未开启'],
       ],
     });
   }
@@ -1202,6 +1425,10 @@ function App() {
       openMintCheckout();
       return;
     }
+    if (form.mode === 'direct') {
+      openFactoryPlanCheckout();
+      return;
+    }
 
     const validation = validateLaunch();
     if (validation) {
@@ -1227,6 +1454,13 @@ function App() {
 
   async function confirmCheckout() {
     if (!checkout || busy) return;
+    if (checkout.type === 'factoryPlan') {
+      setCheckout(null);
+      setActivePage('launch');
+      setLaunchStep('basic');
+      notify('发币参数已保留，工厂合约部署后即可接入真实创建交易。');
+      return;
+    }
     setBusy(true);
     try {
       let payment;
@@ -1236,6 +1470,8 @@ function App() {
         payment = await requestWhitelistUpdate(checkout);
       } else if (checkout.type === 'contractAction') {
         payment = await requestContractAction(checkout);
+      } else if (checkout.type === 'factoryCreate') {
+        payment = await requestFactoryCreate(checkout);
       } else {
         payment = await requestPayment(checkout.amountBnb, checkout.type);
       }
@@ -1246,7 +1482,9 @@ function App() {
             ? '白名单写入'
             : checkout.type === 'contractAction'
               ? checkout.actionLabel || '合约管理'
-              : '发射';
+              : checkout.type === 'factoryCreate'
+                ? '创建新币'
+                : '发射';
       const result = {
         ...payment,
         amountBnb: checkout.amountBnb,
@@ -1807,15 +2045,17 @@ function LaunchWorkbench({
                 <input value={form.startTime} onChange={(event) => update('startTime', event.target.value)} placeholder="立即 / 指定时间" />
               </FormField>
               <ToggleField
-                checked={form.deadLiquidity}
+                checked
+                disabled
                 label="底池自动转 dead"
-                text="初始 LP 或 Mint 累积底池按规则进入黑洞地址。"
+                text="平台强制规则：初始 LP 或 Mint 累积 LP 全部进入黑洞地址。"
                 onChange={(value) => update('deadLiquidity', value)}
               />
               <ToggleField
-                checked={form.renounceOwner}
+                checked
+                disabled
                 label="部署后放弃 Owner"
-                text="合约所有权抛弃后，后续无人可随意改参数。"
+                text="平台强制规则：新币无 Owner，Mint 池可按创建参数直接丢权限。"
                 onChange={(value) => update('renounceOwner', value)}
               />
               <ToggleField
@@ -1988,6 +2228,14 @@ function LaunchWorkbench({
               {form.mode === 'mint' ? '真实 Mint' : '登上擂台'}
             </button>
           </Panel>
+
+          <FactoryBlueprint
+            form={form}
+            wallet={wallet}
+            selectedTemplate={selectedTemplate}
+            update={update}
+            setLaunchStep={setLaunchStep}
+          />
 
           <Panel title="真实合约" icon={Coins}>
             {chainInfo.error ? (
@@ -2165,6 +2413,65 @@ function LaunchWorkbench({
   );
 }
 
+function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchStep }) {
+  const factoryReady = isAddress(FACTORY_CONTRACT);
+  const creator = form.owner && isAddress(form.owner) ? form.owner : wallet.address;
+  const liquidityParams = getFixedLaunchLiquidity(form);
+  const sourceUrl = 'https://github.com/ybc112/Pepefun/tree/main/contracts';
+
+  return (
+    <Panel title="自助发币工厂" icon={Settings}>
+      <div className="factory-status">
+        <span className={`status-pill ${factoryReady ? 'green' : 'cyan'}`}>{factoryReady ? '工厂已部署' : '合约草案已准备'}</span>
+        <span className="status-pill green">支持一键新币</span>
+        <span className="status-pill green">LP进dead</span>
+      </div>
+      <div className="factory-flow">
+        {factoryFlow.map(([step, title, text]) => (
+          <span key={step}>
+            <em>{step}</em>
+            <b>{title}</b>
+            <small>{text}</small>
+          </span>
+        ))}
+      </div>
+      <div className="preview-lines factory-lines">
+        <MiniMetric label="新币模式" value={form.mode === 'direct' ? '直接发币' : '公平Mint池'} />
+        <MiniMetric label="模板协议" value={selectedTemplate.name} />
+        <MiniMetric label="创建者" value={creator ? shortAddress(creator) : '连接后填入'} />
+        <MiniMetric label="初始LP" value={`${formatBnbFromWei(liquidityParams.bnbAmount, 8)} BNB`} />
+        <MiniMetric label="进池代币" value={`${formatUnits(liquidityParams.tokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`} />
+        <MiniMetric label="LP接收" value={shortAddress(DEAD_ADDRESS)} />
+        <MiniMetric label="权限" value="部署后丢掉" />
+      </div>
+      <div className="factory-actions">
+        <button
+          className="secondary"
+          onClick={() => {
+            update('mode', 'direct');
+            setLaunchStep('basic');
+          }}
+          type="button"
+        >
+          <SlidersHorizontal size={15} />
+          配置新币
+        </button>
+        <a className="secondary" href={sourceUrl} target="_blank" rel="noreferrer">
+          <ExternalLink size={15} />
+          工厂源码
+        </a>
+        {factoryReady && (
+          <a className="secondary" href={addressUrl(FACTORY_CONTRACT)} target="_blank" rel="noreferrer">
+            <ExternalLink size={15} />
+            工厂地址
+          </a>
+        )}
+      </div>
+      <p className="factory-note">Factory 会把初始 LP 直接铸到 dead；新币合约不保留 Owner，Mint 池也支持创建后立即丢权限。</p>
+    </Panel>
+  );
+}
+
 function FlowSection() {
   return (
     <section className="section-panel">
@@ -2280,10 +2587,10 @@ function ModeCards({ value, onChange }) {
   );
 }
 
-function ToggleField({ checked, label, text, onChange }) {
+function ToggleField({ checked, label, text, onChange, disabled = false }) {
   return (
-    <label className="toggle-field">
-      <input checked={checked} onChange={(event) => onChange(event.target.checked)} type="checkbox" />
+    <label className={`toggle-field ${disabled ? 'locked' : ''}`}>
+      <input checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} type="checkbox" />
       <span>
         <b>{label}</b>
         <em>{text}</em>
@@ -2356,7 +2663,13 @@ function FrogMark({ compact = false }) {
 
 function CheckoutModal({ checkout, wallet, busy, confirm, cancel }) {
   const ActionIcon =
-    checkout.type === 'whitelist' ? LockKeyhole : checkout.type === 'mintLive' ? Coins : checkout.type === 'contractAction' ? Settings : CreditCard;
+    checkout.type === 'whitelist'
+      ? LockKeyhole
+      : checkout.type === 'mintLive'
+        ? Coins
+        : checkout.type === 'contractAction' || checkout.type === 'factoryPlan' || checkout.type === 'factoryCreate'
+          ? Settings
+          : CreditCard;
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">

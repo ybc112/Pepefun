@@ -1198,6 +1198,15 @@ legend {
   accent-color: var(--lime);
 }
 
+.toggle-field.locked {
+  border-color: rgba(80, 255, 160, 0.24);
+  background: rgba(43, 255, 134, 0.08);
+}
+
+.toggle-field.locked input {
+  opacity: 0.9;
+}
+
 .toggle-field span {
   display: grid;
   gap: 4px;
@@ -1332,6 +1341,65 @@ legend {
   min-height: 34px;
   padding: 0 9px;
   font-size: 12px;
+}
+
+.factory-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.factory-flow {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.factory-flow span {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 0.82fr) minmax(0, 1.4fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 9px;
+  border: 1px solid rgba(218, 255, 138, 0.12);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.factory-flow em {
+  color: var(--amber);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.factory-flow b {
+  font-size: 13px;
+}
+
+.factory-flow small,
+.factory-note {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.factory-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.factory-actions .secondary {
+  min-height: 36px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.factory-note {
+  margin: 10px 0 0;
 }
 
 .launch-summary {
@@ -2020,6 +2088,18 @@ legend {
   .whitelist-tools .status-pill {
     width: 100%;
     justify-content: center;
+  }
+
+  .factory-flow span {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .factory-flow small {
+    grid-column: 2;
+  }
+
+  .factory-actions {
+    grid-template-columns: 1fr;
   }
 
   .step-actions {
