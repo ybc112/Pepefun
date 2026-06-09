@@ -19,6 +19,8 @@ BSC 版公平 Meme 发射工具前端，使用 Vite + React 构建。页面聚�
 
 当前前端默认 Factory 地址为：`0x5026087F558Ce67eAa90501818Ad4fbCF284021c`。
 
+当前 Factory 创建费为：`0.05 BNB`。
+
 ```bash
 npm run hardhat:compile
 npm run deploy:factory:bsc

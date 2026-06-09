@@ -27,7 +27,7 @@ import {
 import pepeArenaArt from './assets/pepe-arena.svg';
 
 const STORAGE_KEY = 'pepe-launch-arena-draft-v5';
-const LAUNCH_FEE_BNB = '0.01';
+const LAUNCH_FEE_BNB = '0.05';
 const PAYMENT_RECEIVER = import.meta.env.VITE_PAYMENT_RECEIVER || '';
 const FACTORY_CONTRACT = import.meta.env.VITE_FACTORY_CONTRACT || '0x5026087F558Ce67eAa90501818Ad4fbCF284021c';
 const MINT_CONTRACT = import.meta.env.VITE_MINT_CONTRACT || '0x17877D1e85390937c461b0A7886Ad75bAAC9F1dA';

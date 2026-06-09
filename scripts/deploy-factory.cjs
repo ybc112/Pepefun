@@ -52,7 +52,7 @@ async function main() {
 
   const feeReceiver = readAddress('FACTORY_FEE_RECEIVER', DEFAULT_FEE_RECEIVER);
   const pancakeRouter = readAddress('PANCAKE_ROUTER', DEFAULT_PANCAKE_ROUTER);
-  const creationFeeBnb = process.env.FACTORY_CREATION_FEE_BNB || '0.01';
+  const creationFeeBnb = process.env.FACTORY_CREATION_FEE_BNB || '0.05';
   const creationFeeWei = hre.ethers.parseEther(creationFeeBnb);
 
   console.log(`Network: ${hre.network.name}`);
