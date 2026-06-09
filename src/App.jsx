@@ -1120,6 +1120,16 @@ function App() {
     setLaunchStep('preview');
   }
 
+  function startLaunch(next = {}) {
+    setForm((current) => ({
+      ...current,
+      ...(next.mode ? { mode: next.mode } : {}),
+      ...(next.templateId ? { templateId: next.templateId } : {}),
+    }));
+    setActivePage('launch');
+    setLaunchStep(next.step || 'basic');
+  }
+
   async function ensureWallet() {
     const provider = getProvider();
     if (!provider?.request) {
@@ -1771,9 +1781,9 @@ function App() {
           )}
           {activePage === 'rules' && <RulesPage />}
           {activePage === 'templates' && (
-            <TemplateSection selectedTemplate={selectedTemplate} selectTemplate={(id) => update('templateId', id)} />
+            <TemplateSection selectedTemplate={selectedTemplate} selectTemplate={(id) => update('templateId', id)} startLaunch={startLaunch} />
           )}
-          {activePage === 'modes' && <ModeSection />}
+          {activePage === 'modes' && <ModeSection startLaunch={startLaunch} />}
           {activePage === 'launch' && (
             <LaunchWorkbench
               form={form}
@@ -2041,7 +2051,7 @@ function PagePager({ activePage, navigate }) {
   );
 }
 
-function TemplateSection({ selectedTemplate, selectTemplate }) {
+function TemplateSection({ selectedTemplate, selectTemplate, startLaunch }) {
   return (
     <section className="section-panel" id="templates">
       <SectionHead
@@ -2049,19 +2059,36 @@ function TemplateSection({ selectedTemplate, selectTemplate }) {
         title="多种模板协议，像选皮肤一样发币"
         text="当前 V3 已接入标准、零税、黑洞底池、无 Owner 和平台币分红模板；规划模板会标记为规划中，不会伪装成可部署。"
       />
+      <div className="section-actions">
+        <button
+          className="primary"
+          onClick={() => startLaunch({ mode: 'direct', templateId: selectedTemplate.deployable ? selectedTemplate.id : 'standard', step: 'basic' })}
+          type="button"
+        >
+          <Rocket size={16} />
+          用当前模板发币
+        </button>
+        <button className="secondary" onClick={() => startLaunch({ mode: 'direct', templateId: 'standard', step: 'basic' })} type="button">
+          <SlidersHorizontal size={16} />
+          打开发币表单
+        </button>
+      </div>
       <div className="template-grid showcase">
         {templates.map((template) => (
           <button
             className={`template-card ${selectedTemplate.id === template.id ? 'active' : ''}`}
             key={template.id}
-            onClick={() => selectTemplate(template.id)}
+            onClick={() => {
+              selectTemplate(template.id);
+              if (template.deployable) startLaunch({ mode: 'direct', templateId: template.id, step: 'basic' });
+            }}
             type="button"
           >
             <span>
               <small>{template.tag}</small>
               <b>{template.name}</b>
               <em>{template.text}</em>
-              <i>{template.deployable ? 'V3已接入' : '规划中'}</i>
+              <i>{template.deployable ? 'V3已接入 · 点此发币' : '规划中'}</i>
             </span>
             {selectedTemplate.id === template.id && <CheckCircle2 size={18} />}
           </button>
@@ -2071,7 +2098,7 @@ function TemplateSection({ selectedTemplate, selectTemplate }) {
   );
 }
 
-function ModeSection() {
+function ModeSection({ startLaunch }) {
   return (
     <section className="section-panel" id="modes">
       <SectionHead
@@ -2079,6 +2106,16 @@ function ModeSection() {
         title="两种发射姿势：直接发币 / 自由 Mint"
         text="你可以用 1 分钟发起一场 Pepe 战役，也可以把 Mint 曲线、毕业目标和底池规则配置得更完整。"
       />
+      <div className="section-actions">
+        <button className="primary" onClick={() => startLaunch({ mode: 'direct', step: 'basic' })} type="button">
+          <Rocket size={16} />
+          开始直接发币
+        </button>
+        <button className="secondary" onClick={() => startLaunch({ mode: 'mint', step: 'preview' })} type="button">
+          <Coins size={16} />
+          去 Mint 面板
+        </button>
+      </div>
       <div className="mode-grid">
         {launchModes.map(({ id, title, kicker, text, icon: Icon }) => (
           <article className="mode-card" key={id}>
@@ -2097,6 +2134,10 @@ function ModeSection() {
                 </li>
               ))}
             </ul>
+            <button className={id === 'direct' ? 'primary mode-action' : 'secondary mode-action'} onClick={() => startLaunch({ mode: id, step: id === 'direct' ? 'basic' : 'preview' })} type="button">
+              {id === 'direct' ? <Rocket size={15} /> : <Coins size={15} />}
+              {id === 'direct' ? '开始发币' : '打开 Mint'}
+            </button>
           </article>
         ))}
         <article className="dead-card">

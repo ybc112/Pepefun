@@ -753,6 +753,19 @@ textarea:focus {
   line-height: 1.7;
 }
 
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: -4px 0 16px;
+}
+
+.section-actions .primary,
+.section-actions .secondary {
+  min-height: 38px;
+  padding: 0 13px;
+}
+
 .rule-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -890,6 +903,12 @@ textarea:focus {
 .mode-card li svg {
   color: var(--green);
   flex: 0 0 auto;
+}
+
+.mode-action {
+  width: 100%;
+  margin-top: 18px;
+  min-height: 38px;
 }
 
 .dead-card {
@@ -2131,6 +2150,16 @@ legend {
   .section-panel,
   .manifesto-panel {
     margin-top: 32px;
+  }
+
+  .section-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .section-actions .primary,
+  .section-actions .secondary {
+    justify-self: stretch;
   }
 
   .toggle-field {
