@@ -33,6 +33,7 @@ const PAYMENT_RECEIVER = import.meta.env.VITE_PAYMENT_RECEIVER || '';
 const FACTORY_CONTRACT = import.meta.env.VITE_FACTORY_CONTRACT || '0x6B5319A16aB6dBD153675e3f7267ea5Ee00B9554';
 const MINT_CONTRACT = import.meta.env.VITE_MINT_CONTRACT || '0x17877D1e85390937c461b0A7886Ad75bAAC9F1dA';
 const TOKEN_CONTRACT = import.meta.env.VITE_TOKEN_CONTRACT || '0xb3b2afb0de33d4d80a20839662bc99c6b360eeee';
+const CONTRACT_SOURCE_URL = 'https://github.com/ybc112/Pepefun/tree/main/contracts';
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD';
 const BSC_PUBLIC_RPCS = ['https://bsc-mainnet.public.blastapi.io', 'https://bsc-rpc.publicnode.com', 'https://bsc.drpc.org'];
@@ -134,7 +135,8 @@ const navItems = [
   { id: 'templates', label: '模板协议', icon: FileCheck2 },
   { id: 'modes', label: '发射姿势', icon: Rocket },
   { id: 'launch', label: '登上擂台', icon: Upload },
-  { id: 'manifesto', label: '擂主宣言', icon: ListChecks },
+  { id: 'deployments', label: '部署列表', icon: ListChecks },
+  { id: 'manifesto', label: '擂主宣言', icon: BadgeCheck },
 ];
 
 const launchModes = [
@@ -450,6 +452,10 @@ function addressUrl(address) {
   return isAddress(address) ? `https://bscscan.com/address/${address}` : '#';
 }
 
+function addressCodeUrl(address) {
+  return isAddress(address) ? `${addressUrl(address)}#code` : '#';
+}
+
 function pancakeUrl(address) {
   return isAddress(address) ? `https://pancakeswap.finance/swap?chain=bsc&outputCurrency=${address}` : '#';
 }
@@ -718,6 +724,18 @@ function templateLabelById(templateId) {
   return found?.name || `模板 ${templateId}`;
 }
 
+function deploymentModeLabel(templateId, pool) {
+  pool;
+  if (Number(templateId) === TEMPLATE_IDS['fair-mint']) return 'Mint池';
+  if (Number(templateId) === TEMPLATE_IDS.reflection) return '持币分红币';
+  return '直接发币';
+}
+
+function deploymentTimeLabel(item) {
+  if (item?.createdAt) return new Date(item.createdAt * 1000).toLocaleString('zh-CN', { hour12: false });
+  return item?.blockNumber ? `Block ${item.blockNumber}` : '等待区块';
+}
+
 function isDeployableTemplate(templateId) {
   return Boolean(getTemplateId(templateId));
 }
@@ -942,6 +960,8 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [lastResult, setLastResult] = useState(null);
   const [factoryRecords, setFactoryRecords] = useState([]);
+  const [factoryRecordsCount, setFactoryRecordsCount] = useState(0);
+  const [selectedDeployment, setSelectedDeployment] = useState(null);
   const [vanityPreview, setVanityPreview] = useState('');
   const [chainInfo, setChainInfo] = useState(DEFAULT_CHAIN_INFO);
   const [chainRefresh, setChainRefresh] = useState(0);
@@ -1165,7 +1185,8 @@ function App() {
     try {
       const factory = new Contract(FACTORY_CONTRACT, FACTORY_VIEW_ABI, getFactoryProvider());
       const count = Number(await factory.getDeploymentsCount());
-      const limit = 12;
+      setFactoryRecordsCount(count);
+      const limit = 50;
       const offset = Math.max(0, count - limit);
       const rows = await factory.getDeployments(offset, limit);
       setFactoryRecords(
@@ -1972,8 +1993,19 @@ function App() {
               mineVanitySalt={mineVanitySalt}
               vanityPreview={vanityPreview}
               factoryRecords={factoryRecords}
+              factoryRecordsCount={factoryRecordsCount}
               refreshFactoryRecords={refreshFactoryRecords}
+              onSelectDeployment={setSelectedDeployment}
               busy={busy}
+            />
+          )}
+          {activePage === 'deployments' && (
+            <DeploymentsPage
+              records={factoryRecords}
+              total={factoryRecordsCount}
+              refreshFactoryRecords={refreshFactoryRecords}
+              onSelectDeployment={setSelectedDeployment}
+              navigate={navigateToPage}
             />
           )}
           {activePage === 'manifesto' && <ManifestoSection />}
@@ -1987,6 +2019,12 @@ function App() {
           busy={busy}
           confirm={confirmCheckout}
           cancel={() => setCheckout(null)}
+        />
+      )}
+      {selectedDeployment && (
+        <DeploymentDetailModal
+          deployment={selectedDeployment}
+          close={() => setSelectedDeployment(null)}
         />
       )}
       {toast && <div className="toast">{toast}</div>}
@@ -2335,7 +2373,9 @@ function LaunchWorkbench({
   mineVanitySalt,
   vanityPreview,
   factoryRecords,
+  factoryRecordsCount,
   refreshFactoryRecords,
+  onSelectDeployment,
   busy,
 }) {
   const currentStepIndex = launchStepIndex(launchStep);
@@ -2874,44 +2914,119 @@ function LaunchWorkbench({
 
           <Panel title="发射记录" icon={ListChecks}>
             <div className="record-head">
-              <span className="status-pill green">链上分页</span>
+              <span className="status-pill green">链上部署 {factoryRecordsCount}</span>
               <button className="secondary" onClick={() => refreshFactoryRecords(false)} type="button">
                 <Timer size={15} />
                 刷新
               </button>
             </div>
-            {factoryRecords.length ? (
-              <div className="launch-records">
-                {factoryRecords.map((item) => (
-                  <article className="launch-record" key={`${item.token}-${item.blockNumber}`}>
-                    <span>
-                      <b>{templateLabelById(item.templateId)}</b>
-                      <em>{item.createdAt ? new Date(item.createdAt * 1000).toLocaleString('zh-CN', { hour12: false }) : `Block ${item.blockNumber}`}</em>
-                    </span>
-                    <div>
-                      <a href={addressUrl(item.token)} target="_blank" rel="noreferrer">
-                        {shortAddress(item.token)}
-                      </a>
-                      {item.pair && !sameAddress(item.pair, ZERO_ADDRESS) && (
-                        <a href={pancakeUrl(item.token)} target="_blank" rel="noreferrer">
-                          Pancake
-                        </a>
-                      )}
-                      {item.pool && !sameAddress(item.pool, ZERO_ADDRESS) && (
-                        <a href={addressUrl(item.pool)} target="_blank" rel="noreferrer">
-                          Mint池
-                        </a>
-                      )}
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <EmptyInline icon={Timer} title="暂无链上记录" text="新发射会从 getDeployments 分页读取；模板维度也可按 getTemplateDeployments 查询。" />
-            )}
+            <DeploymentRecordsList records={factoryRecords.slice(0, 8)} compact onSelectDeployment={onSelectDeployment} />
           </Panel>
         </aside>
       </form>
+    </section>
+  );
+}
+
+function deploymentKey(item) {
+  return `${item.token || item.pool || item.creator}-${item.blockNumber}-${item.salt}`;
+}
+
+function DeploymentRecordsList({ records, compact = false, onSelectDeployment }) {
+  if (!records.length) {
+    return <EmptyInline icon={Timer} title="暂无链上记录" text="新发射会从工厂合约 getDeployments 分页读取，谁部署、部署了什么都会显示在这里。" />;
+  }
+
+  return (
+    <div className={`launch-records ${compact ? 'compact' : ''}`}>
+      {records.map((item) => (
+        <DeploymentRecordCard item={item} key={deploymentKey(item)} compact={compact} onSelectDeployment={onSelectDeployment} />
+      ))}
+    </div>
+  );
+}
+
+function DeploymentRecordCard({ item, compact = false, onSelectDeployment }) {
+  const hasPool = isAddress(item.pool) && !sameAddress(item.pool, ZERO_ADDRESS);
+  const hasPair = isAddress(item.pair) && !sameAddress(item.pair, ZERO_ADDRESS);
+  const modeLabel = deploymentModeLabel(item.templateId, item.pool);
+
+  return (
+    <article className={`launch-record ${compact ? 'compact' : ''}`}>
+      <span>
+        <b>{templateLabelById(item.templateId)}</b>
+        <em>{modeLabel} · {deploymentTimeLabel(item)}</em>
+      </span>
+      <div className="record-metrics">
+        <small>
+          <em>部署钱包</em>
+          <a href={addressUrl(item.creator)} target="_blank" rel="noreferrer">{shortAddress(item.creator)}</a>
+        </small>
+        <small>
+          <em>Token</em>
+          <a href={addressUrl(item.token)} target="_blank" rel="noreferrer">{shortAddress(item.token)}</a>
+        </small>
+        {!compact && (
+          <small>
+            <em>{hasPool ? 'Mint池' : '交易对'}</em>
+            <a href={addressUrl(hasPool ? item.pool : item.pair)} target="_blank" rel="noreferrer">
+              {shortAddress(hasPool ? item.pool : item.pair) || '待生成'}
+            </a>
+          </small>
+        )}
+      </div>
+      <div className="record-actions">
+        <button className="secondary" onClick={() => onSelectDeployment(item)} type="button">
+          <ListChecks size={14} />
+          详情
+        </button>
+        <a className="secondary" href={addressCodeUrl(item.token)} target="_blank" rel="noreferrer">
+          开源
+        </a>
+        {hasPair && (
+          <a className="secondary" href={pancakeUrl(item.token)} target="_blank" rel="noreferrer">
+            Pancake
+          </a>
+        )}
+        {hasPool && (
+          <a className="secondary" href={addressUrl(item.pool)} target="_blank" rel="noreferrer">
+            Mint池
+          </a>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function DeploymentsPage({ records, total, refreshFactoryRecords, onSelectDeployment, navigate }) {
+  return (
+    <section className="section-panel deployments-page" id="deployments">
+      <SectionHead
+        eyebrow="Launch Records"
+        title="部署列表"
+        text="所有通过发射工厂创建的新币都会写入链上记录。这里能看到谁部署、部署了哪个 Token、对应 Mint 池或交易对，以及源码和 BscScan 入口。"
+      />
+      <div className="section-actions">
+        <button className="primary" onClick={() => navigate('launch')} type="button">
+          <Rocket size={16} />
+          去发新币
+        </button>
+        <button className="secondary" onClick={() => refreshFactoryRecords(false)} type="button">
+          <Timer size={16} />
+          刷新部署列表
+        </button>
+        <a className="secondary" href={addressUrl(FACTORY_CONTRACT)} target="_blank" rel="noreferrer">
+          <ExternalLink size={16} />
+          工厂合约
+        </a>
+      </div>
+      <div className="deployment-stats">
+        <MiniMetric label="链上总部署" value={`${total} 个`} />
+        <MiniMetric label="当前展示" value={`${records.length} 个`} />
+        <MiniMetric label="工厂地址" value={shortAddress(FACTORY_CONTRACT)} />
+        <MiniMetric label="创建费" value={`${LAUNCH_FEE_BNB} BNB`} />
+      </div>
+      <DeploymentRecordsList records={records} onSelectDeployment={onSelectDeployment} />
     </section>
   );
 }
@@ -2923,7 +3038,7 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
   const mintParams = getFairMintParams(form);
   const dividendMode = isDividendTemplate(form.templateId);
   const fairMintMode = isFairMintTemplate(form.templateId);
-  const sourceUrl = 'https://github.com/ybc112/Pepefun/tree/main/contracts';
+  const sourceUrl = CONTRACT_SOURCE_URL;
 
   return (
     <Panel title="自助发币工厂" icon={Settings}>
@@ -3170,6 +3285,82 @@ function FrogMark({ compact = false }) {
       <span className="frog-eye right" />
       <span className="frog-mouth" />
     </span>
+  );
+}
+
+function DeploymentDetailModal({ deployment, close }) {
+  const hasPool = isAddress(deployment.pool) && !sameAddress(deployment.pool, ZERO_ADDRESS);
+  const hasPair = isAddress(deployment.pair) && !sameAddress(deployment.pair, ZERO_ADDRESS);
+  const primaryMarketAddress = hasPool ? deployment.pool : deployment.pair;
+  const modeLabel = deploymentModeLabel(deployment.templateId, deployment.pool);
+
+  const details = [
+    ['部署钱包', shortAddress(deployment.creator)],
+    ['Token合约', shortAddress(deployment.token)],
+    [hasPool ? 'Mint池' : '交易对', shortAddress(primaryMarketAddress) || '待生成'],
+    ['模板', `${templateLabelById(deployment.templateId)} / ID ${deployment.templateId}`],
+    ['发射模式', modeLabel],
+    ['支付金额', `${formatBnbFromWei(deployment.valuePaid || 0n, 8)} BNB`],
+    ['LP数量', deployment.liquidity ? deployment.liquidity.toString() : '0'],
+    ['区块', deployment.blockNumber ? String(deployment.blockNumber) : '待确认'],
+    ['时间', deploymentTimeLabel(deployment)],
+    ['Salt', shortAddress(deployment.salt)],
+    ['元数据Hash', shortAddress(deployment.metadataHash)],
+  ];
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="checkout-modal deployment-modal" role="dialog" aria-modal="true" aria-labelledby="deployment-title">
+        <div className="modal-icon">
+          <ListChecks size={24} />
+        </div>
+        <h2 id="deployment-title">部署详情</h2>
+        <p>这条记录来自工厂合约链上分页数据，部署钱包就是调用发射工厂创建新币的钱包。</p>
+        <div className="checkout-lines">
+          {details.map(([label, value]) => (
+            <span key={label}>
+              <em>{label}</em>
+              <strong>{value}</strong>
+            </span>
+          ))}
+        </div>
+        <div className="deployment-links">
+          <a className="secondary" href={addressUrl(deployment.creator)} target="_blank" rel="noreferrer">
+            <ExternalLink size={15} />
+            部署钱包
+          </a>
+          <a className="secondary" href={addressCodeUrl(deployment.token)} target="_blank" rel="noreferrer">
+            <ExternalLink size={15} />
+            Token源码
+          </a>
+          {hasPool && (
+            <a className="secondary" href={addressCodeUrl(deployment.pool)} target="_blank" rel="noreferrer">
+              <ExternalLink size={15} />
+              Mint池代码
+            </a>
+          )}
+          {hasPair && (
+            <a className="secondary" href={pancakeUrl(deployment.token)} target="_blank" rel="noreferrer">
+              <ExternalLink size={15} />
+              Pancake交易
+            </a>
+          )}
+          <a className="secondary" href={CONTRACT_SOURCE_URL} target="_blank" rel="noreferrer">
+            <ExternalLink size={15} />
+            模板源码
+          </a>
+          <a className="secondary" href={addressCodeUrl(FACTORY_CONTRACT)} target="_blank" rel="noreferrer">
+            <ExternalLink size={15} />
+            工厂开源
+          </a>
+        </div>
+        <div className="modal-actions">
+          <button className="primary" onClick={close} type="button">
+            关闭
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 

@@ -1485,15 +1485,30 @@ legend {
   gap: 8px;
 }
 
+.deployments-page .launch-records {
+  gap: 12px;
+}
+
+.deployment-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+  margin: 0 0 14px;
+}
+
 .launch-record {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(160px, 1fr) minmax(240px, 1.3fr) auto;
   gap: 10px;
   align-items: center;
-  padding: 10px;
+  padding: 12px;
   border: 1px solid rgba(218, 255, 138, 0.12);
   border-radius: var(--radius);
   background: rgba(0, 0, 0, 0.2);
+}
+
+.launch-record.compact {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .launch-record span {
@@ -1516,15 +1531,59 @@ legend {
   font-style: normal;
 }
 
-.launch-record div {
+.record-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.launch-record.compact .record-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.record-metrics small {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid rgba(218, 255, 138, 0.1);
+  border-radius: var(--radius);
+  background: rgba(215, 255, 86, 0.045);
+}
+
+.record-metrics small em {
+  font-size: 10px;
+}
+
+.record-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
 }
 
-.launch-record a {
+.record-actions a,
+.record-actions .secondary {
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.launch-record a,
+.record-actions .secondary {
   color: var(--lime);
+}
+
+.deployment-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.deployment-links a {
+  min-height: 38px;
+  font-size: 13px;
 }
 
 .launch-summary {
@@ -2220,7 +2279,11 @@ legend {
   }
 
   .vanity-tools,
-  .launch-record {
+  .launch-record,
+  .deployment-stats,
+  .record-metrics,
+  .launch-record.compact .record-metrics,
+  .deployment-links {
     grid-template-columns: 1fr;
   }
 
@@ -2228,7 +2291,7 @@ legend {
     justify-content: center;
   }
 
-  .launch-record div {
+  .record-actions {
     justify-content: flex-start;
   }
 
