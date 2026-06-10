@@ -870,9 +870,13 @@ async function publicRpcBatch(calls) {
       const items = Array.isArray(payload) ? payload : [payload];
       const byId = new Map(items.map((item) => [item.id, item]));
       return calls.map((_, index) => {
+        const call = calls[index];
         const item = byId.get(index + 1);
-        if (item?.error) throw new Error(item.error.message || '链上参数读取失败');
-        return item?.result || '0x';
+        if (item?.error) {
+          if (call.optional) return call.fallback || '0x';
+          throw new Error(item.error.message || '链上参数读取失败');
+        }
+        return item?.result || call.fallback || '0x';
       });
     } catch (error) {
       lastError = error;
@@ -1151,11 +1155,11 @@ function App() {
           { to: MINT_CONTRACT, data: MINT_SELECTORS.whiteLimit },
           { to: MINT_CONTRACT, data: MINT_SELECTORS.startWhitelist },
           { to: MINT_CONTRACT, data: MINT_SELECTORS.start },
-          { to: MINT_CONTRACT, data: MINT_SELECTORS.failed },
-          { to: MINT_CONTRACT, data: MINT_SELECTORS.refundDeadline },
-          { to: MINT_CONTRACT, data: MINT_SELECTORS.liquidityBnbBps },
-          { to: MINT_CONTRACT, data: MINT_SELECTORS.liquidityTokenBps },
-          { to: MINT_CONTRACT, data: MINT_SELECTORS.pair },
+          { to: MINT_CONTRACT, data: MINT_SELECTORS.failed, optional: true, fallback: '0x0' },
+          { to: MINT_CONTRACT, data: MINT_SELECTORS.refundDeadline, optional: true, fallback: '0x0' },
+          { to: MINT_CONTRACT, data: MINT_SELECTORS.liquidityBnbBps, optional: true, fallback: '0x0' },
+          { to: MINT_CONTRACT, data: MINT_SELECTORS.liquidityTokenBps, optional: true, fallback: '0x0' },
+          { to: MINT_CONTRACT, data: MINT_SELECTORS.pair, optional: true, fallback: `0x${pad64(ZERO_ADDRESS)}` },
           { to: MINT_CONTRACT, data: MINT_SELECTORS.fundAddress },
         ]);
 
@@ -1179,7 +1183,7 @@ function App() {
               { to: MINT_CONTRACT, data: selectorWithAddress(MINT_SELECTORS.accMint, wallet.address) },
               { to: MINT_CONTRACT, data: selectorWithAddress(MINT_SELECTORS.isWhitelist, wallet.address) },
               { to: tokenAddress, data: selectorWithAddress(ERC20_SELECTORS.balanceOf, wallet.address) },
-              { to: MINT_CONTRACT, data: selectorWithAddress(MINT_SELECTORS.refundableBnb, wallet.address) },
+              { to: MINT_CONTRACT, data: selectorWithAddress(MINT_SELECTORS.refundableBnb, wallet.address), optional: true, fallback: '0x0' },
             ]);
             walletMinted = walletMintedRaw ? hexToNumber(walletMintedRaw) : null;
             walletWhitelisted = walletWhitelistedRaw ? decodeBool(walletWhitelistedRaw) : null;
@@ -1718,9 +1722,12 @@ function App() {
   }
 
   function openMintCheckout() {
-    const validation = validateLaunch();
-    if (validation) {
-      notify(validation);
+    if (!isAddress(MINT_CONTRACT)) {
+      notify('当前 Mint 合约地址无效。');
+      return;
+    }
+    if (chainInfo.failed) {
+      notify('当前 Mint 池已失败，请使用退款入口。');
       return;
     }
 
@@ -1737,8 +1744,10 @@ function App() {
       notify(`已按合约上限调整为 ${quantity} 份`);
     }
 
-    const amountWei = chainInfo.priceWei * BigInt(quantity);
-    const tokenSymbol = chainInfo.tokenSymbol || form.symbol || 'PEPE';
+    const priceWei = chainInfo.priceWei > 0n ? chainInfo.priceWei : decimalToUnits('0.01', 18);
+    const tokenSymbol = chainInfo.tokenSymbol || 'Babypepe';
+    const amountPerUnits = chainInfo.amountPerUnits > 0n ? chainInfo.amountPerUnits : decimalToUnits('70000', chainInfo.tokenDecimals || 18);
+    const amountWei = priceWei * BigInt(quantity);
     setCheckout({
       type: 'mintLive',
       title: `Mint：${tokenSymbol}`,
@@ -1751,8 +1760,8 @@ function App() {
       summary: [
         ['Mint 合约', shortAddress(MINT_CONTRACT)],
         ['代币合约', shortAddress(chainInfo.tokenAddress || TOKEN_CONTRACT)],
-        ['每份单价', `${formatBnbFromWei(chainInfo.priceWei, 8)} BNB`],
-        ['每份获得', `${formatUnits(chainInfo.amountPerUnits, chainInfo.tokenDecimals, 4)} ${tokenSymbol}`],
+        ['每份单价', `${formatBnbFromWei(priceWei, 8)} BNB`],
+        ['每份获得', `${formatUnits(amountPerUnits, chainInfo.tokenDecimals || 18, 4)} ${tokenSymbol}`],
         ['本次数量', `${quantity} 份`],
         ['Mint 状态', mintStatusLabel(chainInfo)],
       ],
@@ -2094,9 +2103,11 @@ function App() {
               wallet={wallet}
               selectedMode={selectedMode}
               selectedTemplate={selectedTemplate}
+              chainInfo={chainInfo}
               update={update}
               navigate={navigateToPage}
               connectWallet={connectWallet}
+              openMintCheckout={openMintCheckout}
             />
           )}
           {activePage === 'rules' && <RulesPage />}
@@ -2200,9 +2211,10 @@ function Topbar({ wallet, activePage, navigate, navigateToMint, connectWallet })
   );
 }
 
-function HomePage({ form, wallet, selectedMode, selectedTemplate, update, navigate, connectWallet }) {
+function HomePage({ form, wallet, selectedMode, selectedTemplate, chainInfo, update, navigate, connectWallet, openMintCheckout }) {
   return (
     <>
+      <ActiveMintProject wallet={wallet} chainInfo={chainInfo} connectWallet={connectWallet} openMintCheckout={openMintCheckout} />
       <Hero
         form={form}
         wallet={wallet}
@@ -2214,6 +2226,88 @@ function HomePage({ form, wallet, selectedMode, selectedTemplate, update, naviga
       />
       <MetricStrip />
     </>
+  );
+}
+
+function ActiveMintProject({ wallet, chainInfo, connectWallet, openMintCheckout }) {
+  const tokenName = chainInfo.tokenName || 'Babypepe';
+  const tokenSymbol = chainInfo.tokenSymbol || 'Babypepe';
+  const mintLimit = Math.max(0, chainInfo.mintLimit || 0);
+  const minted = Math.max(0, chainInfo.minted || 0);
+  const progress = mintLimit > 0 ? Math.min(100, (minted / mintLimit) * 100) : 0;
+  const mintPrice = chainInfo.priceWei > 0n ? formatBnbFromWei(chainInfo.priceWei, 8) : '0.01';
+  const amountPerMint = chainInfo.amountPerUnits > 0n ? formatUnits(chainInfo.amountPerUnits, chainInfo.tokenDecimals, 4) : '70000';
+  const whitelistLabel =
+    chainInfo.walletWhitelisted === true
+      ? '当前钱包在白名单'
+      : chainInfo.walletWhitelisted === false
+        ? '当前钱包未在白名单'
+        : wallet.address
+          ? '白名单读取中'
+          : '连接钱包检查白名单';
+
+  return (
+    <section className="active-mint-panel" id="active-mint">
+      <div className="active-mint-copy">
+        <span className="eyebrow">Live Mint</span>
+        <h2>{tokenName}</h2>
+        <p>白名单 Mint 已接入台子，用户可以从这里直接进入 Mint。价格、进度和状态均从链上 Mint 合约读取。</p>
+        <div className="active-mint-tags">
+          <span className="status-pill green">{mintStatusLabel(chainInfo)}</span>
+          <span className="status-pill cyan">{whitelistLabel}</span>
+          <span className="status-pill green">0.01 BNB / 份</span>
+        </div>
+      </div>
+      <div className="active-mint-card">
+        <div className="token-preview compact-preview">
+          <div className="preview-logo">
+            <FrogMark />
+          </div>
+          <div>
+            <b>{tokenName}</b>
+            <span>{tokenSymbol} · BSC 白名单 Mint</span>
+          </div>
+        </div>
+        <div className="mint-progress-row">
+          <span>
+            <em>Mint进度</em>
+            <b>
+              {minted}/{mintLimit || '--'} 份
+            </b>
+          </span>
+          <strong>{progress.toFixed(2)}%</strong>
+        </div>
+        <div className="progress-track" aria-label="Mint进度">
+          <span style={{ width: `${progress}%` }} />
+        </div>
+        <div className="active-mint-actions">
+          {!wallet.address && (
+            <button className="secondary" onClick={connectWallet} type="button">
+              <Wallet size={16} />
+              连接钱包
+            </button>
+          )}
+          <button className="primary" onClick={openMintCheckout} type="button">
+            <Coins size={16} />
+            马上 Mint
+          </button>
+          <a className="secondary" href={addressUrl(MINT_CONTRACT)} target="_blank" rel="noreferrer">
+            <ExternalLink size={15} />
+            Mint合约
+          </a>
+          <a className="secondary" href={addressUrl(TOKEN_CONTRACT)} target="_blank" rel="noreferrer">
+            <ExternalLink size={15} />
+            代币合约
+          </a>
+        </div>
+        <div className="preview-lines active-mint-lines">
+          <MiniMetric label="Mint价格" value={`${mintPrice} BNB`} />
+          <MiniMetric label="每份获得" value={`${amountPerMint} ${tokenSymbol}`} />
+          <MiniMetric label="Mint合约" value={shortAddress(MINT_CONTRACT)} />
+          <MiniMetric label="代币合约" value={shortAddress(TOKEN_CONTRACT)} />
+        </div>
+      </div>
+    </section>
   );
 }
 

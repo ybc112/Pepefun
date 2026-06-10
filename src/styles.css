@@ -695,6 +695,156 @@ textarea:focus {
   grid-column: 1 / -1;
 }
 
+.active-mint-panel {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(340px, 1.08fr);
+  gap: 16px;
+  align-items: stretch;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid rgba(141, 233, 255, 0.2);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(135deg, rgba(215, 255, 86, 0.12), rgba(141, 233, 255, 0.07) 46%, rgba(5, 7, 5, 0.9)),
+    rgba(8, 13, 6, 0.95);
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+.active-mint-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(215, 255, 86, 0.08) 1px, transparent 1px),
+    linear-gradient(rgba(141, 233, 255, 0.06) 1px, transparent 1px);
+  background-size: 34px 34px;
+  opacity: 0.34;
+}
+
+.active-mint-copy,
+.active-mint-card {
+  position: relative;
+  z-index: 1;
+}
+
+.active-mint-copy {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 6px;
+}
+
+.active-mint-copy h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 32px;
+  line-height: 1.12;
+}
+
+.active-mint-copy p {
+  margin: 0;
+  color: #d5e5cc;
+  line-height: 1.7;
+}
+
+.active-mint-tags,
+.active-mint-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.active-mint-card {
+  display: grid;
+  gap: 11px;
+  padding: 14px;
+  border: 1px solid rgba(218, 255, 138, 0.16);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(12px);
+}
+
+.compact-preview {
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 10px;
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.compact-preview .preview-logo {
+  width: 54px;
+  height: 54px;
+}
+
+.compact-preview b {
+  font-size: 19px;
+}
+
+.mint-progress-row {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mint-progress-row span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mint-progress-row em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.mint-progress-row b {
+  overflow-wrap: anywhere;
+  font-size: 21px;
+}
+
+.mint-progress-row strong {
+  color: var(--cyan);
+  font-size: 18px;
+}
+
+.progress-track {
+  height: 9px;
+  overflow: hidden;
+  border: 1px solid rgba(218, 255, 138, 0.14);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.progress-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--lime), var(--green), var(--cyan));
+  box-shadow: 0 0 20px rgba(114, 240, 141, 0.3);
+  transition: width 0.35s ease;
+}
+
+.active-mint-lines {
+  margin-bottom: 0;
+}
+
+.active-mint-actions .primary,
+.active-mint-actions .secondary {
+  min-height: 36px;
+  padding: 0 11px;
+  font-size: 13px;
+}
+
 .metric-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2063,6 +2213,7 @@ legend {
 
   .hero-panel,
   .launch-workbench,
+  .active-mint-panel,
   .manifesto-panel {
     grid-template-columns: 1fr;
   }
@@ -2181,6 +2332,34 @@ legend {
   .hero-panel {
     min-height: auto;
     padding: 20px;
+  }
+
+  .active-mint-panel {
+    gap: 12px;
+    margin-top: 12px;
+    padding: 12px;
+  }
+
+  .active-mint-copy {
+    padding: 2px;
+  }
+
+  .active-mint-copy h2 {
+    font-size: 28px;
+  }
+
+  .active-mint-card {
+    padding: 12px;
+  }
+
+  .active-mint-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .active-mint-actions .primary,
+  .active-mint-actions .secondary {
+    justify-self: stretch;
   }
 
   .hero-copy h1 {
