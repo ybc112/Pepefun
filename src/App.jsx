@@ -2260,7 +2260,7 @@ function ActiveMintProject({ wallet, chainInfo, connectWallet, openMintCheckout 
       </div>
       <div className="active-mint-card">
         <div className="token-preview compact-preview">
-          <div className="preview-logo">
+          <div className="preview-logo frog-preview">
             <FrogMark />
           </div>
           <div>

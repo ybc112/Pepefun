@@ -770,16 +770,16 @@ textarea:focus {
 }
 
 .compact-preview {
-  grid-template-columns: 54px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px;
   margin-bottom: 0;
   padding-bottom: 0;
   border-bottom: 0;
 }
 
 .compact-preview .preview-logo {
-  width: 54px;
-  height: 54px;
+  width: 72px;
+  height: 72px;
 }
 
 .compact-preview b {
@@ -2159,6 +2159,22 @@ legend {
   width: 25px;
   height: 9px;
   border-bottom-width: 2px;
+}
+
+.preview-logo.frog-preview {
+  overflow: visible;
+  padding-top: 10px;
+}
+
+.preview-logo.frog-preview .frog-mark {
+  width: 62px;
+  height: 52px;
+}
+
+.preview-logo.frog-preview .frog-eye {
+  top: -8px;
+  width: 19px;
+  height: 19px;
 }
 
 @keyframes frogBob {
