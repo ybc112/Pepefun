@@ -150,7 +150,7 @@ const navItems = [
   { id: 'rules', label: '公平规则', icon: ShieldCheck },
   { id: 'templates', label: '模板协议', icon: FileCheck2 },
   { id: 'modes', label: '发射姿势', icon: Rocket },
-  { id: 'launch', label: '登上擂台', icon: Upload },
+  { id: 'launch', label: '发新币', icon: Upload },
   { id: 'deployments', label: '部署列表', icon: ListChecks },
   { id: 'manifesto', label: '擂主宣言', icon: BadgeCheck },
 ];
@@ -1030,7 +1030,7 @@ function launchStepIndex(step) {
 
 function App() {
   const [activePage, setActivePage] = useState(pageFromHash);
-  const [launchStep, setLaunchStep] = useState('preview');
+  const [launchStep, setLaunchStep] = useState('basic');
   const [form, setForm] = useState(loadDraft);
   const [wallet, setWallet] = useState({ address: '', chainId: '', providerName: '' });
   const [checkout, setCheckout] = useState(null);
@@ -1381,7 +1381,7 @@ function App() {
 
   function navigateToMint() {
     setActivePage('launch');
-    setLaunchStep('preview');
+    setLaunchStep('basic');
   }
 
   function startLaunch(next = {}) {
@@ -2147,7 +2147,7 @@ function App() {
               total={factoryRecordsCount}
               refreshFactoryRecords={refreshFactoryRecords}
               onSelectDeployment={setSelectedDeployment}
-              navigate={navigateToPage}
+              startLaunch={startLaunch}
             />
           )}
           {activePage === 'manifesto' && <ManifestoSection />}
@@ -2539,7 +2539,7 @@ function ModeSection({ startLaunch }) {
           <Rocket size={16} />
           开始直接发币
         </button>
-        <button className="secondary" onClick={() => startLaunch({ mode: 'mint', step: 'preview' })} type="button">
+        <button className="secondary" onClick={() => startLaunch({ mode: 'mint', step: 'basic' })} type="button">
           <Coins size={16} />
           去 Mint 面板
         </button>
@@ -2562,7 +2562,7 @@ function ModeSection({ startLaunch }) {
                 </li>
               ))}
             </ul>
-            <button className={id === 'direct' ? 'primary mode-action' : 'secondary mode-action'} onClick={() => startLaunch({ mode: id, step: id === 'direct' ? 'basic' : 'preview' })} type="button">
+            <button className={id === 'direct' ? 'primary mode-action' : 'secondary mode-action'} onClick={() => startLaunch({ mode: id, step: 'basic' })} type="button">
               {id === 'direct' ? <Rocket size={15} /> : <Coins size={15} />}
               {id === 'direct' ? '开始发币' : '打开 Mint'}
             </button>
@@ -3201,7 +3201,7 @@ function deploymentKey(item) {
 
 function DeploymentRecordsList({ records, compact = false, onSelectDeployment }) {
   if (!records.length) {
-    return <EmptyInline icon={Timer} title="暂无链上记录" text="新发射会从工厂合约 getDeployments 分页读取，谁部署、部署了什么都会显示在这里。" />;
+    return <EmptyInline icon={Timer} title="新工厂暂无发币记录" text="只有通过本页面发币工厂创建成功的新币，才会写入这里；创建完成后会自动显示部署钱包、Token、Mint池和开源入口。" />;
   }
 
   return (
@@ -3265,18 +3265,18 @@ function DeploymentRecordCard({ item, compact = false, onSelectDeployment }) {
   );
 }
 
-function DeploymentsPage({ records, total, refreshFactoryRecords, onSelectDeployment, navigate }) {
+function DeploymentsPage({ records, total, refreshFactoryRecords, onSelectDeployment, startLaunch }) {
   return (
     <section className="section-panel deployments-page" id="deployments">
       <SectionHead
         eyebrow="Launch Records"
         title="部署列表"
-        text="所有通过发射工厂创建的新币都会写入链上记录。这里能看到谁部署、部署了哪个 Token、对应 Mint 池或交易对，以及源码和 BscScan 入口。"
+        text="这里显示的是通过当前发币工厂创建成功的新币记录。还没人发币时会显示 0；点下面按钮进入白名单 Mint 发币表单。"
       />
       <div className="section-actions">
-        <button className="primary" onClick={() => navigate('launch')} type="button">
+        <button className="primary" onClick={() => startLaunch({ mode: 'mint', templateId: 'fair-mint', step: 'basic' })} type="button">
           <Rocket size={16} />
-          去发新币
+          创建白名单Mint
         </button>
         <button className="secondary" onClick={() => refreshFactoryRecords(false)} type="button">
           <Timer size={16} />
