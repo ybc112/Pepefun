@@ -22,6 +22,7 @@ contract PepeLaunchFactory is OwnableLite {
     address payable public feeReceiver;
     address public defaultRewardToken;
     uint256 public creationFee;
+    uint256 public whitelistCreationFee;
 
     struct TokenParams {
         string name;
@@ -45,6 +46,9 @@ contract PepeLaunchFactory is OwnableLite {
         uint16 buyFeeBps;
         uint16 sellFeeBps;
         bool renounceOwnerAfterCreate;
+        uint256 rewardSwapThreshold;
+        uint256 autoClaimThreshold;
+        uint256 autoClaimGasLimit;
     }
 
     struct DeployOptions {
@@ -100,6 +104,7 @@ contract PepeLaunchFactory is OwnableLite {
     event FairMintPoolImplementationUpdated(address indexed implementation);
     event DividendTokenImplementationUpdated(address indexed implementation);
     event CreationFeeUpdated(uint256 creationFee);
+    event WhitelistCreationFeeUpdated(uint256 whitelistCreationFee);
     event TemplateUpdated(uint8 indexed templateId, uint8 kind, bool enabled, bool requiresLiquidity, bool supportsDividends, bytes32 label);
     event TokenCodeHashApprovalUpdated(bytes32 indexed codeHash, bool approved);
     event TokenDeployed(
@@ -138,6 +143,7 @@ contract PepeLaunchFactory is OwnableLite {
         require(dividendTokenImplementation_ != address(0));
         feeReceiver = feeReceiver_;
         creationFee = creationFee_;
+        whitelistCreationFee = creationFee_ * 2;
         pancakeRouter = IPancakeRouter02(router_);
         defaultRewardToken = defaultRewardToken_;
         fairMintPoolImplementation = fairMintPoolImplementation_;
@@ -218,13 +224,16 @@ contract PepeLaunchFactory is OwnableLite {
         require(mintParams.amountPerMint > 0);
         require(mintParams.mintLimit > 0);
         require(mintParams.liquidityTokenAmount > 0);
+        require(mintParams.liquidityBnbBps <= 10000 && mintParams.liquidityTokenBps <= 10000);
         if (mintParams.startWhitelist) require(initialWhitelist.length > 0);
 
         uint256 saleSupply = mintParams.amountPerMint * mintParams.mintLimit;
+        uint256 requiredLiquiditySupply = (saleSupply * mintParams.liquidityTokenBps) / 10000;
+        require(mintParams.liquidityTokenAmount >= requiredLiquiditySupply);
         uint256 requiredSupply = saleSupply + mintParams.liquidityTokenAmount;
         require(tokenParams.totalSupply >= requiredSupply);
 
-        uint256 usableValue = _collectFee(0);
+        uint256 usableValue = _collectFee(0, _fairMintCreationFee(mintParams, initialWhitelist));
         bytes32 create2Salt = _saltFor(msg.sender, options.salt);
         bytes memory tokenInitCode = _fixedInitCode(tokenParams);
         address predicted = _predictCreate2(create2Salt, keccak256(tokenInitCode));
@@ -409,6 +418,11 @@ contract PepeLaunchFactory is OwnableLite {
         emit CreationFeeUpdated(creationFee_);
     }
 
+    function setWhitelistCreationFee(uint256 whitelistCreationFee_) external onlyOwner {
+        whitelistCreationFee = whitelistCreationFee_;
+        emit WhitelistCreationFeeUpdated(whitelistCreationFee_);
+    }
+
     function _deployFixedTemplate(
         TokenParams calldata tokenParams,
         LiquidityParams calldata liquidityParams,
@@ -443,13 +457,32 @@ contract PepeLaunchFactory is OwnableLite {
     ) internal returns (address token, address pair, uint256 liquidity) {
         uint256 usableValue = _collectFee(liquidityParams.bnbAmount);
         address receiver = tokenParams.receiver == address(0) ? msg.sender : tokenParams.receiver;
-        address rewardToken = dividendParams.rewardToken == address(0) ? defaultRewardToken : dividendParams.rewardToken;
-        address dividendFeeReceiver = dividendParams.feeReceiver == address(0) ? feeReceiver : dividendParams.feeReceiver;
         bytes32 create2Salt = _saltFor(msg.sender, options.salt);
         address predicted = ClonesLite.predictDeterministicAddress(dividendTokenImplementation, create2Salt, address(this));
         _checkSuffix(predicted, options.requiredSuffix, options.suffixLength, options.enforceSuffix);
 
         token = ClonesLite.cloneDeterministic(dividendTokenImplementation, create2Salt);
+        _initializeDividendToken(token, tokenParams, dividendParams);
+        require(IERC20Lite(token).balanceOf(address(this)) >= liquidityParams.tokenAmount);
+        uint256 usedBnb;
+        (pair, liquidity, usedBnb) = _addDeadLiquidity(token, liquidityParams);
+        usableValue -= usedBnb;
+
+        DividendMemeToken(token).setPair(pair);
+        uint256 remainingToken = IERC20Lite(token).balanceOf(address(this));
+        if (remainingToken > 0) require(IERC20Lite(token).transfer(receiver, remainingToken));
+        DividendMemeToken(token).renounceOwnership();
+        if (usableValue > 0) _sendValue(payable(msg.sender), usableValue);
+        _recordDeployment(msg.sender, token, pair, address(0), options.templateId, options.salt, msg.value, liquidity, metadataHash);
+    }
+
+    function _initializeDividendToken(
+        address token,
+        TokenParams calldata tokenParams,
+        DividendParams calldata dividendParams
+    ) internal {
+        address rewardToken = dividendParams.rewardToken == address(0) ? defaultRewardToken : dividendParams.rewardToken;
+        address dividendFeeReceiver = dividendParams.feeReceiver == address(0) ? feeReceiver : dividendParams.feeReceiver;
         DividendMemeToken(token).initialize(
             tokenParams.name,
             tokenParams.symbol,
@@ -462,17 +495,11 @@ contract PepeLaunchFactory is OwnableLite {
             dividendParams.buyFeeBps,
             dividendParams.sellFeeBps
         );
-        require(IERC20Lite(token).balanceOf(address(this)) >= liquidityParams.tokenAmount);
-        uint256 usedBnb;
-        (pair, liquidity, usedBnb) = _addDeadLiquidity(token, liquidityParams);
-        usableValue -= usedBnb;
-
-        DividendMemeToken(token).setPair(pair);
-        uint256 remainingToken = IERC20Lite(token).balanceOf(address(this));
-        if (remainingToken > 0) require(IERC20Lite(token).transfer(receiver, remainingToken));
-        DividendMemeToken(token).renounceOwnership();
-        if (usableValue > 0) _sendValue(payable(msg.sender), usableValue);
-        _recordDeployment(msg.sender, token, pair, address(0), options.templateId, options.salt, msg.value, liquidity, metadataHash);
+        DividendMemeToken(token).setAutoRewardConfig(
+            dividendParams.rewardSwapThreshold == 0 ? tokenParams.totalSupply / 10000 : dividendParams.rewardSwapThreshold,
+            dividendParams.autoClaimThreshold == 0 ? 4 ether : dividendParams.autoClaimThreshold,
+            dividendParams.autoClaimGasLimit == 0 ? 4 : dividendParams.autoClaimGasLimit
+        );
     }
 
     function _fixedInitCode(TokenParams calldata tokenParams) internal view returns (bytes memory) {
@@ -573,9 +600,18 @@ contract PepeLaunchFactory is OwnableLite {
     }
 
     function _collectFee(uint256 requiredExtraValue) internal returns (uint256 usableValue) {
-        require(msg.value >= creationFee + requiredExtraValue);
-        if (creationFee > 0) _sendValue(feeReceiver, creationFee);
-        return msg.value - creationFee;
+        return _collectFee(requiredExtraValue, creationFee);
+    }
+
+    function _collectFee(uint256 requiredExtraValue, uint256 feeAmount) internal returns (uint256 usableValue) {
+        require(msg.value >= feeAmount + requiredExtraValue);
+        if (feeAmount > 0) _sendValue(feeReceiver, feeAmount);
+        return msg.value - feeAmount;
+    }
+
+    function _fairMintCreationFee(FairMintPool.MintParams calldata mintParams, address[] calldata initialWhitelist) internal view returns (uint256) {
+        bool whitelistEnabled = mintParams.startWhitelist || mintParams.whiteLimit > 0 || initialWhitelist.length > 0;
+        return whitelistEnabled ? whitelistCreationFee : creationFee;
     }
 
     function _deployCreate2(bytes32 salt, bytes memory initCode) internal returns (address deployed) {

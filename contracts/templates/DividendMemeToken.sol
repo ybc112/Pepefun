@@ -28,6 +28,10 @@ contract DividendMemeToken {
     uint256 public magnifiedDividendPerShare;
     uint256 public totalDividendShares;
     uint256 public totalRewardsDistributed;
+    uint256 public swapThreshold;
+    uint256 public autoClaimThreshold;
+    uint256 public autoClaimGasLimit;
+    uint256 public nextAutoClaimIndex;
 
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
@@ -36,6 +40,8 @@ contract DividendMemeToken {
     mapping(address => uint256) public dividendShares;
     mapping(address => int256) public magnifiedDividendCorrections;
     mapping(address => uint256) public withdrawnDividends;
+    mapping(address => uint256) private dividendHolderIndexPlusOne;
+    address[] private dividendHolders;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event Transfer(address indexed from, address indexed to, uint256 value);
@@ -47,6 +53,8 @@ contract DividendMemeToken {
     event ExcludedFromDividends(address indexed account, bool excluded);
     event RewardsDeposited(address indexed from, uint256 amount);
     event RewardsClaimed(address indexed account, uint256 amount);
+    event AutoRewardsConfigured(uint256 swapThreshold, uint256 autoClaimThreshold, uint256 autoClaimGasLimit);
+    event AutoClaimsProcessed(uint256 processed, uint256 claims);
     event FeesSwappedToRewards(uint256 tokenAmount, uint256 rewardAmount);
 
     constructor() {
@@ -90,6 +98,9 @@ contract DividendMemeToken {
         feeReceiver = feeReceiver_;
         buyFeeBps = buyFeeBps_;
         sellFeeBps = sellFeeBps_;
+        swapThreshold = totalSupply_ / 10000;
+        autoClaimThreshold = 4 ether;
+        autoClaimGasLimit = 4;
 
         excludedFromFees[owner_] = true;
         excludedFromFees[address(this)] = true;
@@ -159,6 +170,10 @@ contract DividendMemeToken {
         emit FeeReceiverUpdated(feeReceiver_);
     }
 
+    function setAutoRewardConfig(uint256 swapThreshold_, uint256 autoClaimThreshold_, uint256 autoClaimGasLimit_) external onlyOwner {
+        _setAutoRewardConfig(swapThreshold_, autoClaimThreshold_, autoClaimGasLimit_);
+    }
+
     function setExcludedFromFees(address account, bool excluded) external onlyOwner {
         excludedFromFees[account] = excluded;
         emit ExcludedFromFees(account, excluded);
@@ -179,40 +194,19 @@ contract DividendMemeToken {
     }
 
     function swapFeesToRewards(uint256 tokenAmount, uint256 amountOutMin, uint256 deadline) external {
-        require(tokenAmount > 0);
-        require(balanceOf[address(this)] >= tokenAmount);
-        address reward = address(rewardToken);
-        require(reward != address(this));
-
-        address[] memory path = new address[](3);
-        path[0] = address(this);
-        path[1] = pancakeRouter.WETH();
-        path[2] = reward;
-
-        swapping = true;
-        allowance[address(this)][address(pancakeRouter)] = tokenAmount;
-        emit Approval(address(this), address(pancakeRouter), tokenAmount);
-        uint256 beforeBalance = rewardToken.balanceOf(address(this));
-        pancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens(
-            tokenAmount,
-            amountOutMin,
-            path,
-            address(this),
-            deadline == 0 ? block.timestamp + 1800 : deadline
-        );
-        swapping = false;
-
-        uint256 rewardAmount = rewardToken.balanceOf(address(this)) - beforeBalance;
-        _distributeRewards(rewardAmount);
-        emit FeesSwappedToRewards(tokenAmount, rewardAmount);
+        _swapFeesToRewards(tokenAmount, amountOutMin, deadline);
     }
 
     function claimRewards() external {
-        uint256 withdrawable = withdrawableDividendOf(msg.sender);
-        require(withdrawable > 0);
-        withdrawnDividends[msg.sender] += withdrawable;
-        require(rewardToken.transfer(msg.sender, withdrawable));
-        emit RewardsClaimed(msg.sender, withdrawable);
+        _claimRewards(msg.sender, false);
+    }
+
+    function processAutoClaims(uint256 maxAccounts) external returns (uint256 processed, uint256 claims) {
+        return _processAutoClaims(maxAccounts);
+    }
+
+    function dividendHoldersCount() external view returns (uint256) {
+        return dividendHolders.length;
     }
 
     function withdrawableDividendOf(address account) public view returns (uint256) {
@@ -253,6 +247,10 @@ contract DividendMemeToken {
         _syncDividendShare(from);
         _syncDividendShare(to);
         if (fee > 0) _syncDividendShare(address(this));
+        _maybeSwapFeesToRewards();
+        _autoClaim(from);
+        _autoClaim(to);
+        if (autoClaimGasLimit > 0) _processAutoClaims(autoClaimGasLimit);
     }
 
     function _mint(address to, uint256 value) internal {
@@ -289,5 +287,109 @@ contract DividendMemeToken {
             magnifiedDividendCorrections[account] += int256(magnifiedDividendPerShare * decrease);
         }
         dividendShares[account] = nextShare;
+        _syncDividendHolder(account, nextShare);
+    }
+
+    function _setAutoRewardConfig(uint256 swapThreshold_, uint256 autoClaimThreshold_, uint256 autoClaimGasLimit_) internal {
+        swapThreshold = swapThreshold_;
+        autoClaimThreshold = autoClaimThreshold_;
+        autoClaimGasLimit = autoClaimGasLimit_;
+        emit AutoRewardsConfigured(swapThreshold_, autoClaimThreshold_, autoClaimGasLimit_);
+    }
+
+    function _maybeSwapFeesToRewards() internal {
+        if (swapping || pair == address(0) || swapThreshold == 0 || totalDividendShares == 0) return;
+        uint256 tokenBalance = balanceOf[address(this)];
+        if (tokenBalance < swapThreshold) return;
+        _swapFeesToRewards(swapThreshold, 0, block.timestamp + 1800);
+    }
+
+    function _swapFeesToRewards(uint256 tokenAmount, uint256 amountOutMin, uint256 deadline) internal {
+        require(tokenAmount > 0);
+        require(balanceOf[address(this)] >= tokenAmount);
+        address reward = address(rewardToken);
+        require(reward != address(this));
+        require(totalDividendShares > 0);
+
+        address[] memory path = new address[](3);
+        path[0] = address(this);
+        path[1] = pancakeRouter.WETH();
+        path[2] = reward;
+
+        swapping = true;
+        allowance[address(this)][address(pancakeRouter)] = tokenAmount;
+        emit Approval(address(this), address(pancakeRouter), tokenAmount);
+        uint256 beforeBalance = rewardToken.balanceOf(address(this));
+        pancakeRouter.swapExactTokensForTokensSupportingFeeOnTransferTokens(
+            tokenAmount,
+            amountOutMin,
+            path,
+            address(this),
+            deadline == 0 ? block.timestamp + 1800 : deadline
+        );
+        swapping = false;
+
+        uint256 rewardAmount = rewardToken.balanceOf(address(this)) - beforeBalance;
+        if (rewardAmount > 0) _distributeRewards(rewardAmount);
+        emit FeesSwappedToRewards(tokenAmount, rewardAmount);
+    }
+
+    function _claimRewards(address account, bool automatic) internal returns (bool) {
+        uint256 withdrawable = withdrawableDividendOf(account);
+        if (withdrawable == 0) return false;
+        if (automatic && withdrawable < autoClaimThreshold) return false;
+        withdrawnDividends[account] += withdrawable;
+        bool transferred;
+        try rewardToken.transfer(account, withdrawable) returns (bool success) {
+            transferred = success;
+        } catch {
+            transferred = false;
+        }
+        if (!transferred) {
+            withdrawnDividends[account] -= withdrawable;
+            if (automatic) return false;
+            require(transferred);
+        }
+        emit RewardsClaimed(account, withdrawable);
+        return true;
+    }
+
+    function _autoClaim(address account) internal {
+        if (autoClaimThreshold == 0 || account == address(0) || excludedFromDividends[account]) return;
+        _claimRewards(account, true);
+    }
+
+    function _processAutoClaims(uint256 maxAccounts) internal returns (uint256 processed, uint256 claims) {
+        uint256 holders = dividendHolders.length;
+        if (holders == 0 || maxAccounts == 0 || autoClaimThreshold == 0) return (0, 0);
+        uint256 cursor = nextAutoClaimIndex;
+        for (uint256 i = 0; i < maxAccounts; i++) {
+            if (cursor >= holders) cursor = 0;
+            address account = dividendHolders[cursor];
+            if (_claimRewards(account, true)) claims++;
+            cursor++;
+            processed++;
+        }
+        nextAutoClaimIndex = cursor >= holders ? 0 : cursor;
+        emit AutoClaimsProcessed(processed, claims);
+    }
+
+    function _syncDividendHolder(address account, uint256 share) internal {
+        bool listed = dividendHolderIndexPlusOne[account] != 0;
+        if (share > 0 && !listed) {
+            dividendHolders.push(account);
+            dividendHolderIndexPlusOne[account] = dividendHolders.length;
+        } else if (share == 0 && listed) {
+            uint256 index = dividendHolderIndexPlusOne[account] - 1;
+            uint256 lastIndex = dividendHolders.length - 1;
+            if (index != lastIndex) {
+                address moved = dividendHolders[lastIndex];
+                dividendHolders[index] = moved;
+                dividendHolderIndexPlusOne[moved] = index + 1;
+            }
+            dividendHolders.pop();
+            dividendHolderIndexPlusOne[account] = 0;
+            if (nextAutoClaimIndex > dividendHolders.length) nextAutoClaimIndex = 0;
+        }
     }
 }

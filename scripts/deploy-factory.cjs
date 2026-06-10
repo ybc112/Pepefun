@@ -58,11 +58,14 @@ async function main() {
   const defaultRewardToken = readAddress('DEFAULT_REWARD_TOKEN', DEFAULT_REWARD_TOKEN);
   const creationFeeBnb = process.env.FACTORY_CREATION_FEE_BNB || '0.005';
   const creationFeeWei = hre.ethers.parseEther(creationFeeBnb);
+  const whitelistCreationFeeBnb = process.env.FACTORY_WHITELIST_CREATION_FEE_BNB || '';
+  const whitelistCreationFeeWei = whitelistCreationFeeBnb ? hre.ethers.parseEther(whitelistCreationFeeBnb) : creationFeeWei * 2n;
 
   console.log(`Network: ${hre.network.name}`);
   console.log(`Deployer: ${deployer.address}`);
   console.log(`Fee receiver: ${feeReceiver}`);
   console.log(`Creation fee: ${creationFeeBnb} BNB (${creationFeeWei.toString()} wei)`);
+  console.log(`Whitelist creation fee: ${hre.ethers.formatEther(whitelistCreationFeeWei)} BNB (${whitelistCreationFeeWei.toString()} wei)`);
   console.log(`Pancake Router: ${pancakeRouter}`);
   console.log(`Default reward token: ${defaultRewardToken}`);
 
@@ -98,6 +101,12 @@ async function main() {
   console.log(`PepeLaunchFactory deployed: ${address}`);
   console.log(`Deployment tx: ${deploymentTx?.hash || ''}`);
 
+  if (whitelistCreationFeeWei !== creationFeeWei * 2n) {
+    const feeTx = await factory.setWhitelistCreationFee(whitelistCreationFeeWei);
+    await feeTx.wait();
+    console.log(`Whitelist creation fee updated tx: ${feeTx.hash}`);
+  }
+
   const constructorArguments = [
     feeReceiver,
     creationFeeWei.toString(),
@@ -128,6 +137,7 @@ async function main() {
     constructorArguments,
     feeReceiver,
     creationFeeWei: creationFeeWei.toString(),
+    whitelistCreationFeeWei: whitelistCreationFeeWei.toString(),
     pancakeRouter,
     defaultRewardToken,
     deployedAt: new Date().toISOString(),

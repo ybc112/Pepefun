@@ -10,7 +10,7 @@ This folder contains the self-service launch factory contracts for BSC.
   - Exposes a guarded `deployToken(bytes32 salt, bytes tokenCreationCode, ...)` path for approved creation-code hashes.
   - Predicts CREATE2 token addresses and supports suffix checks for vanity tails.
   - Records launches on-chain with paginated `getDeployments`, `getCreatorTokens`, `getLaunchedTokens`, and `getTemplateDeployments`.
-  - Collects a configurable creation fee.
+  - Collects a configurable creation fee and a separate whitelist Mint creation fee.
   - Forces direct-launch liquidity through PancakeSwap V2 and sends LP tokens directly to `0x...dEaD`.
   - Uses clone implementations for fair mint pools and dividend tokens so the factory stays deployable and template logic stays separated.
   - Refunds unused BNB after liquidity creation.
@@ -20,6 +20,7 @@ This folder contains the self-service launch factory contracts for BSC.
   - Maximum buy fee and sell fee are capped at 10%.
   - Swaps collected fees through PancakeSwap into the configured reward token.
   - Uses dividend accounting so holders can claim reward tokens.
+  - Can automatically swap collected fees to the default platform token and roll through holders for threshold-based auto payouts.
   - No blacklist, sell-blocking, hidden owner, or upgrade logic.
 
 - `PepeMemeToken`
@@ -33,8 +34,9 @@ This folder contains the self-service launch factory contracts for BSC.
   - Supports whitelist-first and public mint modes.
   - Supports Dragon-style method names such as `launchWhitelist`, `launch`, and `excludeMultipleAccountsFromFees`.
   - Supports per-wallet and per-transaction limits.
-  - Keeps raised BNB in the pool and creates PancakeSwap liquidity at sellout.
+  - Can add PancakeSwap liquidity on every Mint according to configured BNB/token ratios.
   - Sends LP tokens directly to `0x...dEaD`.
+  - Supports a refund deadline; if the Mint does not sell out and liquidity was not finalized, users can manually refund their refundable BNB balance.
   - Can renounce owner during creation after initial settings and whitelist are written.
   - Lets owner send unsold tokens to the dead address.
 
@@ -43,7 +45,7 @@ This folder contains the self-service launch factory contracts for BSC.
 1. Review and audit `PepeLaunchFactory.sol`.
 2. Deploy `PepeLaunchFactory` on BSC with:
    - `feeReceiver`: platform mint/creation fee wallet (`0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939` by default)
-   - `creationFee`: platform creation fee in wei
+   - `creationFee`: normal platform creation fee in wei
    - `router`: PancakeSwap V2 Router on BSC (`0x10ED43C718714eb63d5aA57B78B54704E256024E`)
    - `defaultRewardToken`: platform reward token (`0xb3b2afb0de33d4d80a20839662bc99c6b360eeee` by default)
    - `fairMintPoolImplementation`: deployed `FairMintPool` implementation
@@ -66,6 +68,7 @@ BSC_RPC_URL=https://bsc-dataseed.binance.org/
 BSCSCAN_API_KEY=
 FACTORY_FEE_RECEIVER=0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939
 FACTORY_CREATION_FEE_BNB=0.005
+FACTORY_WHITELIST_CREATION_FEE_BNB=0.01
 PANCAKE_ROUTER=0x10ED43C718714eb63d5aA57B78B54704E256024E
 DEFAULT_REWARD_TOKEN=0xb3b2afb0de33d4d80a20839662bc99c6b360eeee
 VERIFY_AFTER_DEPLOY=false
@@ -96,8 +99,12 @@ Or verify manually with the command printed in the deployment record.
 
 ## Mainnet Deployment
 
-- Factory: `0x6B5319A16aB6dBD153675e3f7267ea5Ee00B9554`
-- FairMintPool implementation: `0x6A8a2A44da07bEe7AB0a833890F2397E4bA39973`
-- DividendMemeToken implementation: `0x0DAd4A4F8165D8c941025262Ab5d96c590B28594`
-- Creation fee: `0.005 BNB`
-- Factory BscScan: `https://bscscan.com/address/0x6B5319A16aB6dBD153675e3f7267ea5Ee00B9554#code`
+- Factory: `0xB9447a3691e171876CBA4Cd98dd27904EF266abc`
+- FairMintPool implementation: `0xd9e15f71246a925E332DEC2e41873F274bE0085d`
+- DividendMemeToken implementation: `0x980BD791A13CEF80ede1d358c97161184Fe0CF86`
+- Creation fee: normal Mint `0.005 BNB`, whitelist Mint `0.01 BNB`
+- Factory BscScan: `https://bscscan.com/address/0xB9447a3691e171876CBA4Cd98dd27904EF266abc#code`
+- FairMintPool BscScan: `https://bscscan.com/address/0xd9e15f71246a925E332DEC2e41873F274bE0085d#code`
+- DividendMemeToken BscScan: `https://bscscan.com/address/0x980BD791A13CEF80ede1d358c97161184Fe0CF86#code`
+
+This deployed version includes whitelist creation fee separation, per-Mint dead LP, refund deadlines, and auto reward payouts.

@@ -14,6 +14,7 @@ contract FairMintPool {
     bool public start;
     bool public startWhitelist;
     bool public liquidityCreated;
+    bool public failed;
 
     uint256 public price;
     uint256 public amountPerMint;
@@ -23,12 +24,18 @@ contract FairMintPool {
     uint256 public accMintLimit;
     uint256 public accEachLimit;
     uint256 public liquidityTokenAmount;
+    uint256 public liquidityTokenSpent;
+    uint256 public liquidityBnbBps;
+    uint256 public liquidityTokenBps;
+    uint256 public refundDeadline;
+    address public pair;
 
     bool private initialized;
     bool private locked;
 
     mapping(address => bool) public whitelist;
     mapping(address => uint256) public accMint;
+    mapping(address => uint256) public refundableBnb;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event Minted(address indexed account, uint256 units, uint256 tokenAmount, uint256 paid);
@@ -36,6 +43,8 @@ contract FairMintPool {
     event WhitelistUpdated(address indexed account, bool enabled);
     event Started(bool whitelistMode, bool publicMode);
     event DeadLiquidityCreated(address indexed pair, uint256 tokenAmount, uint256 bnbAmount, uint256 liquidity);
+    event InstantLiquidityCreated(address indexed account, address indexed pair, uint256 tokenAmount, uint256 bnbAmount, uint256 liquidity);
+    event Failed(uint256 minted, uint256 mintLimit);
     event UnsoldSentToDead(uint256 amount);
     event DustBnbSentToDead(uint256 amount);
 
@@ -47,6 +56,9 @@ contract FairMintPool {
         uint256 accMintLimit;
         uint256 accEachLimit;
         uint256 liquidityTokenAmount;
+        uint256 liquidityBnbBps;
+        uint256 liquidityTokenBps;
+        uint256 refundDeadline;
         bool startWhitelist;
         bool startPublic;
         bool renounceOwnerAfterCreate;
@@ -82,6 +94,8 @@ contract FairMintPool {
         require(params.price > 0);
         require(params.amountPerMint > 0);
         require(params.mintLimit > 0);
+        require(params.liquidityBnbBps <= 10000);
+        require(params.liquidityTokenBps <= 10000);
 
         initialized = true;
         owner = owner_;
@@ -94,6 +108,9 @@ contract FairMintPool {
         accMintLimit = params.accMintLimit;
         accEachLimit = params.accEachLimit == 0 ? 1 : params.accEachLimit;
         liquidityTokenAmount = params.liquidityTokenAmount;
+        liquidityBnbBps = params.liquidityBnbBps;
+        liquidityTokenBps = params.liquidityTokenBps;
+        refundDeadline = params.refundDeadline;
         startWhitelist = params.startWhitelist;
         start = params.startPublic;
 
@@ -125,6 +142,7 @@ contract FairMintPool {
     }
 
     function mint() public payable nonReentrant {
+        require(!failed);
         bool whitelistMint = startWhitelist && whitelist[msg.sender];
         require(start || whitelistMint);
         require(msg.sender == tx.origin);
@@ -135,7 +153,7 @@ contract FairMintPool {
         require(units > 0);
 
         uint256 paid = units * price;
-        uint256 refund = msg.value - paid;
+        uint256 extraRefund = msg.value - paid;
         uint256 nextAccountMint = accMint[msg.sender] + units;
 
         require(minted + units <= mintLimit);
@@ -146,18 +164,49 @@ contract FairMintPool {
         accMint[msg.sender] = nextAccountMint;
 
         uint256 tokenAmount = units * amountPerMint;
+        uint256 bnbForLiquidity = (paid * liquidityBnbBps) / 10000;
+        uint256 tokenForLiquidity = (tokenAmount * liquidityTokenBps) / 10000;
+        if (bnbForLiquidity == 0 || tokenForLiquidity == 0) {
+            bnbForLiquidity = 0;
+            tokenForLiquidity = 0;
+        }
+        if (tokenForLiquidity > 0) {
+            require(liquidityTokenSpent + tokenForLiquidity <= liquidityTokenAmount);
+        }
+
         require(token.transfer(msg.sender, tokenAmount));
 
         emit Minted(msg.sender, units, tokenAmount, paid);
 
-        if (refund > 0) {
-            _sendValue(payable(msg.sender), refund);
-            emit Refunded(msg.sender, refund);
+        uint256 refundable = paid - bnbForLiquidity;
+        if (refundable > 0) refundableBnb[msg.sender] += refundable;
+
+        if (bnbForLiquidity > 0 && tokenForLiquidity > 0) {
+            _addInstantDeadLiquidity(msg.sender, tokenForLiquidity, bnbForLiquidity, 0, 0, block.timestamp);
         }
 
-        if (minted == mintLimit && !liquidityCreated && liquidityTokenAmount > 0 && address(this).balance > 0) {
+        if (extraRefund > 0) {
+            _sendValue(payable(msg.sender), extraRefund);
+            emit Refunded(msg.sender, extraRefund);
+        }
+
+        if (minted == mintLimit && !liquidityCreated && liquidityTokenAmount > liquidityTokenSpent && address(this).balance > 0) {
             _createDeadLiquidity(0, 0, block.timestamp);
         }
+    }
+
+    function refund() external nonReentrant {
+        if (!failed) {
+            require(!liquidityCreated);
+            require(refundDeadline > 0 && block.timestamp >= refundDeadline && minted < mintLimit);
+            failed = true;
+            emit Failed(minted, mintLimit);
+        }
+        uint256 amount = refundableBnb[msg.sender];
+        require(amount > 0);
+        refundableBnb[msg.sender] = 0;
+        _sendValue(payable(msg.sender), amount);
+        emit Refunded(msg.sender, amount);
     }
 
     function setWhitelist(address[] calldata accounts, bool enabled) external onlyOwner {
@@ -220,6 +269,18 @@ contract FairMintPool {
         accEachLimit = accEachLimit_ == 0 ? 1 : accEachLimit_;
     }
 
+    function setLiquidityBps(uint256 bnbBps, uint256 tokenBps) external onlyOwner {
+        require(!start && !startWhitelist);
+        require(bnbBps <= 10000 && tokenBps <= 10000);
+        liquidityBnbBps = bnbBps;
+        liquidityTokenBps = tokenBps;
+    }
+
+    function setRefundDeadline(uint256 newDeadline) external onlyOwner {
+        require(!start && !startWhitelist);
+        refundDeadline = newDeadline;
+    }
+
     function setWhiteLimit(uint256 newValue) external onlyOwner {
         require(!start && !startWhitelist);
         whiteLimit = newValue;
@@ -261,6 +322,15 @@ contract FairMintPool {
         _createDeadLiquidity(amountTokenMin, amountBnbMin, deadline);
     }
 
+    function markFailed() external {
+        require(!failed);
+        require(!liquidityCreated);
+        require(refundDeadline > 0 && block.timestamp >= refundDeadline);
+        require(minted < mintLimit);
+        failed = true;
+        emit Failed(minted, mintLimit);
+    }
+
     function sendUnsoldToDead(uint256 amount) external onlyOwner {
         require(amount > 0);
         require(token.transfer(DEAD_ADDRESS, amount));
@@ -288,7 +358,8 @@ contract FairMintPool {
 
     function _createDeadLiquidity(uint256 amountTokenMin, uint256 amountBnbMin, uint256 deadline) internal {
         require(!liquidityCreated);
-        uint256 tokenAmount = liquidityTokenAmount;
+        require(!failed);
+        uint256 tokenAmount = liquidityTokenAmount - liquidityTokenSpent;
         uint256 bnbAmount = address(this).balance;
         require(tokenAmount > 0);
         require(bnbAmount > 0);
@@ -304,7 +375,8 @@ contract FairMintPool {
             DEAD_ADDRESS,
             deadline == 0 ? block.timestamp : deadline
         );
-        address pair = IPancakeFactory(pancakeRouter.factory()).getPair(address(token), pancakeRouter.WETH());
+        pair = IPancakeFactory(pancakeRouter.factory()).getPair(address(token), pancakeRouter.WETH());
+        liquidityTokenSpent += usedToken;
         emit DeadLiquidityCreated(pair, usedToken, usedBnb, liquidity);
 
         uint256 remainingToken = token.balanceOf(address(this));
@@ -318,6 +390,32 @@ contract FairMintPool {
             _sendValue(payable(DEAD_ADDRESS), remainingBnb);
             emit DustBnbSentToDead(remainingBnb);
         }
+    }
+
+    function _addInstantDeadLiquidity(
+        address account,
+        uint256 tokenAmount,
+        uint256 bnbAmount,
+        uint256 amountTokenMin,
+        uint256 amountBnbMin,
+        uint256 deadline
+    ) internal {
+        require(token.balanceOf(address(this)) >= tokenAmount);
+        require(token.approve(address(pancakeRouter), tokenAmount));
+        (uint256 usedToken, uint256 usedBnb, uint256 liquidity) = pancakeRouter.addLiquidityETH{value: bnbAmount}(
+            address(token),
+            tokenAmount,
+            amountTokenMin,
+            amountBnbMin,
+            DEAD_ADDRESS,
+            deadline == 0 ? block.timestamp : deadline
+        );
+        pair = IPancakeFactory(pancakeRouter.factory()).getPair(address(token), pancakeRouter.WETH());
+        liquidityTokenSpent += usedToken;
+        emit InstantLiquidityCreated(account, pair, usedToken, usedBnb, liquidity);
+
+        uint256 remainingBnb = bnbAmount - usedBnb;
+        if (remainingBnb > 0) refundableBnb[account] += remainingBnb;
     }
 
     function _renounceOwnership() internal {
