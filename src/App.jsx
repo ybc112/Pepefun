@@ -1359,7 +1359,6 @@ function App() {
     }
     if (!form.deadLiquidity) return '平台规则要求底池 LP 全部打入 dead 黑洞';
     const whitelistInfo = parseWhitelist(form.whitelistAddresses);
-    if (form.whitelist && whitelistInfo.valid.length === 0) return '已开启白名单，请至少添加 1 个有效钱包地址';
     if (form.whitelist && whitelistInfo.invalid.length > 0) return '白名单里有格式错误的钱包地址，请先修正';
     if (numberValue(form.mintPrice) <= 0) return 'Mint 单价必须大于 0';
     if (numberValue(form.mintSlots) <= 0) return 'Mint 总份数必须大于 0';
@@ -1404,7 +1403,9 @@ function App() {
     setCheckout({
       type: 'factoryCreate',
       title: `创建发币项目：${form.tokenName || 'Pepe Token'}`,
-      description: '这次会调用 PEPE 发币工厂创建新的代币和 Mint 池。请在钱包里核对工厂地址、创建费和网络。',
+      description: form.whitelist && whitelistInfo.valid.length === 0
+        ? '这次会先创建白名单 Mint 池，白名单地址可以部署成功后在部署详情里继续添加。请在钱包里核对工厂地址、创建费和网络。'
+        : '这次会调用 PEPE 发币工厂创建新的代币和 Mint 池。请在钱包里核对工厂地址、创建费和网络。',
       amountBnb: formatBnbFromWei(totalValueWei, 8),
       valueWei: totalValueWei.toString(),
       actionLabel: form.whitelist ? '确认部署白名单Mint池' : '确认部署公开Mint池',
@@ -1437,7 +1438,12 @@ function App() {
         ['Salt', suffix ? '确认时后端匹配' : form.vanitySalt ? shortAddress(saltToBytes32(form.vanitySalt)) : '确认时自动生成'],
         ['权限', 'Token / Mint池 Owner 给项目方，打满后 LP 进 dead'],
         ['接收钱包', form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '确认时连接'],
-        ['白名单', form.whitelist ? `${whitelistInfo.valid.length} 个地址 / ${mintParams.whiteLimit.toString()} 份` : '未开启'],
+        [
+          '白名单',
+          form.whitelist
+            ? `${whitelistInfo.valid.length} 个地址 / ${mintParams.whiteLimit.toString()} 份${whitelistInfo.valid.length === 0 ? '，部署后添加' : ''}`
+            : '未开启',
+        ],
       ],
     });
   }
@@ -2182,7 +2188,7 @@ function LaunchWorkbench({
                         加入当前钱包
                       </button>
                     )}
-                    <span className="status-pill green">创建时写入新池</span>
+                    <span className="status-pill green">{whitelistInfo.valid.length ? '创建后自动写入' : '可部署后添加'}</span>
                     <button className="secondary" onClick={() => update('whitelistAddresses', '')} type="button">
                       清空名单
                     </button>
@@ -2324,6 +2330,7 @@ function LaunchWorkbench({
               <div className="whitelist-summary">
                 <LockKeyhole size={17} />
                 白名单：{whitelistInfo.valid.length} 个有效地址 / {mintParams.whiteLimit.toString()} 份
+                {whitelistInfo.valid.length === 0 && '，可部署后在详情里添加'}
                 {whitelistInfo.invalid.length > 0 && `，${whitelistInfo.invalid.length} 个地址需修正`}
               </div>
             )}
@@ -2362,7 +2369,14 @@ function LaunchWorkbench({
               <MiniMetric label="税收分配" value={getTaxSplitSummary(form)} />
               <MiniMetric label="尾号定制" value={`...${normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)}`} />
               <MiniMetric label="Owner" value="项目方 Owner / 打满后 LP 黑洞" />
-              <MiniMetric label="白名单" value={form.whitelist ? `${whitelistInfo.valid.length} 地址 / ${mintParams.whiteLimit.toString()} 份` : '未开启'} />
+              <MiniMetric
+                label="白名单"
+                value={
+                  form.whitelist
+                    ? `${whitelistInfo.valid.length} 地址 / ${mintParams.whiteLimit.toString()} 份${whitelistInfo.valid.length === 0 ? '，后续添加' : ''}`
+                    : '未开启'
+                }
+              />
               <MiniMetric label="每笔加池" value="BNB 100% / 币 50%" />
               <MiniMetric label="退款窗口" value="24 小时" />
             </div>
@@ -2380,7 +2394,11 @@ function LaunchWorkbench({
                 连接真实钱包
               </button>
             )}
-            {form.whitelist && <span className="status-pill green">白名单创建时写入新池</span>}
+            {form.whitelist && (
+              <span className="status-pill green">
+                {whitelistInfo.valid.length ? '白名单创建后自动写入' : '白名单可部署后在详情里添加'}
+              </span>
+            )}
             <button className="primary full submit-btn" type="submit">
               <Coins size={16} />
               {form.whitelist ? '部署白名单Mint池' : '部署公开Mint池'}
@@ -2870,7 +2888,7 @@ function DeploymentDetailModal({ deployment, close, onMint, onRefund, onSetWhite
         {hasPool && (
           <div className="deployment-mint-box">
             <label className="form-field">
-              <span>Owner白名单地址</span>
+              <span>添加白名单地址</span>
               <textarea
                 value={whitelistBatch}
                 onChange={(event) => setWhitelistBatch(event.target.value)}
@@ -2880,7 +2898,7 @@ function DeploymentDetailModal({ deployment, close, onMint, onRefund, onSetWhite
             <div className="record-actions">
               <button className="secondary" onClick={() => onSetWhitelist(deployment, whitelistBatch)} type="button">
                 <LockKeyhole size={15} />
-                写入白名单
+                批量添加白名单
               </button>
               <button className="secondary" onClick={() => onSetWhitelistMode(deployment, true)} type="button">
                 开启白名单
