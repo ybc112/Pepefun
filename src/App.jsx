@@ -33,7 +33,6 @@ const WHITELIST_LAUNCH_FEE_BNB = LAUNCH_FEE_BNB;
 const PAYMENT_RECEIVER = import.meta.env.VITE_PAYMENT_RECEIVER || '';
 const DEFAULT_FACTORY_CONTRACT = '0xEd168e31FD49E09794E8d21c2DE92b7188Ed3eE9';
 const FACTORY_CONTRACT = import.meta.env.VITE_FACTORY_CONTRACT || DEFAULT_FACTORY_CONTRACT;
-const MINT_CONTRACT = import.meta.env.VITE_MINT_CONTRACT || '';
 const TOKEN_CONTRACT = import.meta.env.VITE_TOKEN_CONTRACT || '';
 const DEFAULT_REWARD_TOKEN = import.meta.env.VITE_REWARD_TOKEN_CONTRACT || '0x55d398326f99059fF775485246999027B3197955';
 const CONTRACT_SOURCE_URL = 'https://github.com/ybc112/Pepefun/tree/main/contracts';
@@ -45,14 +44,6 @@ const BSC_CHAIN_ID = 56;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD';
 const BSC_PUBLIC_RPCS = ['https://bsc-mainnet.public.blastapi.io', 'https://bsc-rpc.publicnode.com', 'https://bsc.drpc.org'];
-const ERC20_SELECTORS = {
-  name: '0x06fdde03',
-  symbol: '0x95d89b41',
-  decimals: '0x313ce567',
-  totalSupply: '0x18160ddd',
-  balanceOf: '0x70a08231',
-  approve: '0x095ea7b3',
-};
 const FACTORY_VIEW_ABI = [
   'function allTokensLength() view returns (uint256)',
   'function creationFee() view returns (uint256)',
@@ -62,30 +53,9 @@ const FACTORY_WRITE_INTERFACE = new Interface([
   'function createLaunch((string name,string symbol,string metadataUri,uint256 totalSupply,uint256 mintCount,uint256 mintPrice,uint256 maxMintPerWallet,address paymentToken,address rewardToken,uint256 rewardThreshold,address receiver,bytes32 templateId,uint16 buyTaxBps,uint16 sellTaxBps,uint16 transferTaxBps,uint16 addLiquidityTaxBps,uint16 removeLiquidityTaxBps,uint16 launchProtectionTaxBps,uint16 launchProtectionBlocks,uint32 claimWait,uint16 fundFeeBps,uint16 lpFeeBps,uint16 dividendFeeBps,uint16 burnFeeBps,uint256 whitelistMintCount,bool whitelistEnabled) params,bytes32 salt) payable returns (address token,address vault)',
   'event LaunchCreated(address indexed creator,address indexed token,address indexed vault,bytes32 templateId,string name,string symbol,uint256 totalSupply,uint256 mintCount,uint256 mintPrice,address paymentToken,bool whitelistEnabled,string metadataUri)',
 ]);
-const VAULT_VIEW_INTERFACE = new Interface([
-  'function owner() view returns (address)',
-  'function token() view returns (address)',
-  'function mintPrice() view returns (uint256)',
-  'function tokensPerMint() view returns (uint256)',
-  'function totalMints() view returns (uint256)',
-  'function mintedCount() view returns (uint256)',
-  'function whitelistMintedCount() view returns (uint256)',
-  'function maxMintPerWallet() view returns (uint256)',
-  'function whitelistMintLimit() view returns (uint256)',
-  'function whitelistEnabled() view returns (bool)',
-  'function finalized() view returns (bool)',
-  'function refundDeadline() view returns (uint256)',
-  'function liquidityPair() view returns (address)',
-  'function receiver() view returns (address)',
-  'function mintedByWallet(address account) view returns (uint256)',
-  'function whitelistList(address account) view returns (bool)',
-  'function paidByWallet(address account) view returns (uint256)',
-]);
 const VAULT_WRITE_INTERFACE = new Interface([
-  'function mint(uint256 quantity) payable',
   'function claimRefund()',
   'function setWhitelistAccounts(address[] accounts,bool listed)',
-  'function setWhitelistEnabled(bool enabled)',
 ]);
 const TEMPLATE_IDS = {
   standard: keccak256(toUtf8Bytes('standard')),
@@ -95,36 +65,6 @@ const TEMPLATE_IDS = {
   reflection: keccak256(toUtf8Bytes('reflection')),
   'dividend-token': keccak256(toUtf8Bytes('dividend-token')),
   'fair-mint': keccak256(toUtf8Bytes('fair-mint')),
-};
-const DEFAULT_CHAIN_INFO = {
-  loading: true,
-  error: '',
-  owner: '',
-  tokenAddress: TOKEN_CONTRACT,
-  tokenName: '',
-  tokenSymbol: '',
-  tokenDecimals: 18,
-  totalSupply: '',
-  priceWei: 0n,
-  amountPerUnits: 0n,
-  mintLimit: 0,
-  minted: 0,
-  accMintLimit: 0,
-  accEachLimit: 0,
-  whiteLimit: 0,
-  startWhitelist: false,
-  start: false,
-  failed: false,
-  refundDeadline: 0,
-  liquidityBnbBps: 0,
-  liquidityTokenBps: 0,
-  refundableBnbWei: 0n,
-  pairAddress: '',
-  fundAddress: '',
-  walletMinted: null,
-  walletWhitelisted: null,
-  walletBalance: '',
-  updatedAt: '',
 };
 const BSC_CHAIN = {
   chainId: '0x38',
@@ -250,7 +190,6 @@ const mintPlaybooks = [
     tag: '主玩法',
     text: '创建时写入白名单，白名单窗口结束后项目方可开公开 Mint。',
     whitelist: true,
-    priceCurve: '固定价格',
   },
   {
     id: 'public',
@@ -258,12 +197,11 @@ const mintPlaybooks = [
     tag: '全员同入口',
     text: '任何钱包按单价 Mint，卖完后募集 BNB 自动进池。',
     whitelist: false,
-    priceCurve: '固定价格',
   },
 ];
 
 const fairClaims = [
-  ['没有开发跑路', '部署规则公开，Owner 可选直接抛弃。'],
+  ['参数公开上链', '部署钱包、Owner 和税控参数全部可查。'],
   ['没有底池被撤', 'LP 自动打入 dead 黑洞地址。'],
   ['没有合约留后门', '模板开源、参数上链、BscScan 可验证。'],
   ['没有内幕预留', '自由 Mint 模式无预挖，全凭手速和共识。'],
@@ -319,28 +257,15 @@ const defaultForm = {
   lpFeePercent: '18',
   dividendFeePercent: '16',
   burnRate: '10',
-  initialLiquidity: '0.2',
-  launchPrice: '0.000001',
-  teamAllocation: '0',
   mintPrice: '0.01',
-  tokensPerMint: '1000',
   mintSlots: '1000',
   whiteMintSlots: '100',
   maxPerWallet: '5',
-  priceCurve: '固定价格',
-  graduationTarget: '5',
-  lpBnbPercent: '100',
-  lpTokenPercent: '50',
-  refundHours: '24',
   rewardSwapThreshold: '',
-  autoClaimThreshold: '4',
-  autoClaimBatchSize: '4',
-  startTime: '',
   website: '',
   x: '',
   telegram: '',
   deadLiquidity: true,
-  renounceOwner: true,
   whitelist: true,
   whitelistAddresses: '',
   mintQuantity: '1',
@@ -396,7 +321,6 @@ function loadDraft() {
         templateId: saved.form?.templateId || defaultForm.templateId,
         vanitySuffix: normalizeHexSuffix(saved.form?.vanitySuffix || defaultForm.vanitySuffix),
         deadLiquidity: true,
-        renounceOwner: true,
       };
     }
   } catch {
@@ -509,53 +433,9 @@ function stripHex(value) {
   return String(value || '').replace(/^0x/i, '');
 }
 
-function pad64(value) {
-  return stripHex(value).padStart(64, '0');
-}
-
 function hexToBigInt(value) {
   const hex = stripHex(value);
   return hex ? BigInt(`0x${hex}`) : 0n;
-}
-
-function hexToNumber(value) {
-  return Number(hexToBigInt(value));
-}
-
-function decodeAddress(value) {
-  const hex = stripHex(value);
-  if (hex.length < 40) return '';
-  return `0x${hex.slice(-40)}`;
-}
-
-function decodeTopicAddress(value) {
-  const address = decodeAddress(value);
-  return isAddress(address) ? address : '';
-}
-
-function decodeBool(value) {
-  return hexToBigInt(value) !== 0n;
-}
-
-function decodeString(value) {
-  try {
-    const hex = stripHex(value);
-    if (!hex) return '';
-    if (hex.length === 64) {
-      const bytes32 = hex.match(/.{1,2}/g)?.map((item) => Number.parseInt(item, 16)) || [];
-      return new TextDecoder().decode(new Uint8Array(bytes32)).replace(/\0+$/, '');
-    }
-    if (hex.length < 128) return '';
-    const offset = Number(BigInt(`0x${hex.slice(0, 64)}`));
-    const lengthStart = offset * 2;
-    const length = Number(BigInt(`0x${hex.slice(lengthStart, lengthStart + 64)}`));
-    const dataStart = lengthStart + 64;
-    const bytes = hex.slice(dataStart, dataStart + length * 2);
-    const chars = bytes.match(/.{1,2}/g)?.map((item) => Number.parseInt(item, 16)) || [];
-    return new TextDecoder().decode(new Uint8Array(chars)).replace(/\0+$/, '');
-  } catch {
-    return '';
-  }
 }
 
 function formatUnits(value, decimals = 18, precision = 4) {
@@ -573,62 +453,20 @@ function formatBnbFromWei(value, precision = 6) {
   return formatUnits(value, 18, precision);
 }
 
-function selectorWithAddress(selector, address) {
-  return `${selector}${pad64(address)}`;
-}
-
 function encodeWhitelistCall(addresses, enabled = true) {
   return VAULT_WRITE_INTERFACE.encodeFunctionData('setWhitelistAccounts', [addresses, enabled]);
 }
 
-function encodeUintCall(selector, value) {
-  const amount = typeof value === 'bigint' ? value : BigInt(value || 0);
-  return `${selector}${pad64(amount.toString(16))}`;
-}
-
-function encodeAddressCall(selector, address) {
-  return `${selector}${pad64(address)}`;
-}
-
-function encodeApproveCall(spender, amount) {
-  return `${ERC20_SELECTORS.approve}${pad64(spender)}${pad64(amount.toString(16))}`;
-}
-
-function getFixedLaunchLiquidity(form) {
-  const bnbAmount = decimalToUnits(form.initialLiquidity, 18);
-  const launchPriceWei = decimalToUnits(form.launchPrice, 18);
-  if (bnbAmount <= 0n || launchPriceWei <= 0n) {
-    return {
-      enabled: false,
-      bnbAmount: 0n,
-      tokenAmount: 0n,
-      minTokenAmount: 0n,
-      minBnbAmount: 0n,
-      deadline: 0n,
-    };
-  }
-
-  return {
-    enabled: true,
-    bnbAmount,
-    tokenAmount: (bnbAmount * 10n ** 18n) / launchPriceWei,
-    minTokenAmount: 0n,
-    minBnbAmount: 0n,
-    deadline: BigInt(Math.floor(Date.now() / 1000) + 1800),
-  };
-}
-
 function getDividendParams(form) {
   const enabled = isDividendTemplate(form.templateId);
+  const totalSupply = decimalToUnits(form.totalSupply, 18);
+  const defaultRewardThreshold = totalSupply > 0n ? totalSupply / 10000n : 0n;
   return {
     rewardToken: enabled && isAddress(TOKEN_CONTRACT) ? TOKEN_CONTRACT : DEFAULT_REWARD_TOKEN,
     feeReceiver: ZERO_ADDRESS,
     buyFeeBps: enabled ? percentToBps(form.buyTax) : 0,
     sellFeeBps: enabled ? percentToBps(form.sellTax) : 0,
-    renounceOwnerAfterCreate: form.renounceOwner,
-    rewardSwapThreshold: enabled && numberValue(form.rewardSwapThreshold) > 0 ? decimalToUnits(form.rewardSwapThreshold, 18) : 0n,
-    autoClaimThreshold: enabled ? decimalToUnits(form.autoClaimThreshold || '4', 18) : 0n,
-    autoClaimGasLimit: enabled ? Math.max(1, Math.floor(numberValue(form.autoClaimBatchSize) || 4)) : 0,
+    rewardThreshold: enabled && numberValue(form.rewardSwapThreshold) > 0 ? decimalToUnits(form.rewardSwapThreshold, 18) : defaultRewardThreshold,
   };
 }
 
@@ -660,7 +498,6 @@ function getFairMintParams(form) {
     refundDeadline,
     startWhitelist: Boolean(form.whitelist),
     startPublic: !form.whitelist,
-    renounceOwnerAfterCreate: false,
   };
 }
 
@@ -698,7 +535,7 @@ function getTaxSplitSummary(form) {
   return `营销${formatBnb(form.fundFeePercent)}% / LP${formatBnb(form.lpFeePercent)}% / 分红${formatBnb(form.dividendFeePercent)}% / 销毁${formatBnb(form.burnRate)}%`;
 }
 
-function buildFactoryLaunchParams(form, creatorAddress) {
+function buildFactoryLaunchParams(form, creatorAddress, metadataUri = buildMetadataUriPayload(form)) {
   const receiver = form.owner && isAddress(form.owner) ? form.owner : creatorAddress;
   const mintParams = getFairMintParams(form);
   const dividendParams = getDividendParams(form);
@@ -713,19 +550,14 @@ function buildFactoryLaunchParams(form, creatorAddress) {
   return {
     name: form.tokenName.trim(),
     symbol: cleanSymbol(form.symbol),
-    metadataUri: JSON.stringify({
-      website: String(form.website || '').trim(),
-      x: String(form.x || '').trim(),
-      telegram: String(form.telegram || '').trim(),
-      note: String(form.note || '').trim(),
-    }),
+    metadataUri,
     totalSupply: decimalToUnits(form.totalSupply, 18),
     mintCount: mintParams.mintLimit,
     mintPrice: mintParams.price,
     maxMintPerWallet: mintParams.accMintLimit,
     paymentToken: ZERO_ADDRESS,
     rewardToken: isAddress(dividendParams.rewardToken) ? dividendParams.rewardToken : ZERO_ADDRESS,
-    rewardThreshold: dividendParams.autoClaimThreshold,
+    rewardThreshold: dividendParams.rewardThreshold,
     receiver,
     templateId: getTemplateId(form.templateId),
     buyTaxBps,
@@ -881,14 +713,54 @@ async function resolveLaunchSalt(creator, params, suffix) {
   };
 }
 
-function getMetadataHash(form) {
-  const metadata = JSON.stringify({
+function buildMetadataUriPayload(form, logoUrl = '') {
+  return JSON.stringify({
+    name: String(form.tokenName || '').trim(),
+    symbol: cleanSymbol(form.symbol || ''),
+    image: logoUrl,
     website: String(form.website || '').trim(),
     x: String(form.x || '').trim(),
     telegram: String(form.telegram || '').trim(),
     note: String(form.note || '').trim(),
   });
-  return keccak256(toUtf8Bytes(metadata));
+}
+
+async function uploadLogoAsset(dataUrl) {
+  const raw = String(dataUrl || '');
+  if (!raw.startsWith('data:')) return '';
+  if (!APP_BACKEND_URL) {
+    throw new Error('Logo 上链元数据需要配置 VITE_APP_BACKEND_URL 并运行后端。');
+  }
+
+  const response = await fetch(buildBackendUrl('/api/assets'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ dataUrl: raw }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.url) {
+    throw new Error(result.error || 'Logo 资产上传失败，请稍后重试。');
+  }
+  return String(result.url);
+}
+
+async function buildMetadataUri(form) {
+  const logoUrl = form.logoData ? await uploadLogoAsset(form.logoData) : '';
+  return buildMetadataUriPayload(form, logoUrl);
+}
+
+async function queueProjectVerification(tokenAddress) {
+  if (!APP_BACKEND_URL || !isAddress(tokenAddress)) return null;
+  const response = await fetch(buildBackendUrl('/api/verify-project'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token: tokenAddress }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result.error || '自动验源码入队失败。');
+  }
+  return result.job || null;
 }
 
 function getFactoryProvider() {
@@ -1008,45 +880,11 @@ async function publicRpcCall(to, data) {
   return result;
 }
 
-async function ethCall(provider, to, data) {
-  if (provider?.request) {
-    try {
-      return await provider.request({
-        method: 'eth_call',
-        params: [{ to, data }, 'latest'],
-      });
-    } catch {
-      return publicRpcCall(to, data);
-    }
-  }
-  return publicRpcCall(to, data);
-}
-
 async function getFactoryCreationFeeWei(formLike = null) {
   formLike;
   if (!isAddress(FACTORY_CONTRACT)) return 0n;
   const raw = await publicRpcCall(FACTORY_CONTRACT, new Interface(['function creationFee() view returns (uint256)']).encodeFunctionData('creationFee'));
   return hexToBigInt(raw);
-}
-
-function mintStatusLabel(info) {
-  if (info.loading) return '读取中';
-  if (info.error) return '等待配置';
-  if (info.failed) return '可退款';
-  if (info.start) return '已开启';
-  if (info.startWhitelist) return '白名单窗口开启';
-  return '尚未开始';
-}
-
-function getAvailableMintLimit(info, hasWallet) {
-  if (info.failed) return 0;
-  const limits = [];
-  if (info.accEachLimit > 0) limits.push(info.accEachLimit);
-  if (info.mintLimit > 0) limits.push(Math.max(0, info.mintLimit - info.minted));
-  if (hasWallet && info.accMintLimit > 0 && info.walletMinted !== null) {
-    limits.push(Math.max(0, info.accMintLimit - info.walletMinted));
-  }
-  return limits.length ? Math.min(...limits) : Number.POSITIVE_INFINITY;
 }
 
 function pageFromHash() {
@@ -1076,8 +914,6 @@ function App() {
   const [factoryRecordsCount, setFactoryRecordsCount] = useState(0);
   const [selectedDeployment, setSelectedDeployment] = useState(null);
   const [vanityPreview, setVanityPreview] = useState('');
-  const [chainInfo, setChainInfo] = useState(DEFAULT_CHAIN_INFO);
-  const [chainRefresh, setChainRefresh] = useState(0);
 
   const selectedTemplate = useMemo(
     () => templates.find((item) => item.id === form.templateId) || templates[0],
@@ -1093,9 +929,7 @@ function App() {
     [form.mintPrice, form.mintSlots],
   );
   const launchAmount = useMemo(() => {
-    const baseFee = numberValue(getLaunchFeeBnb(form));
-    if (form.mode === 'direct') return baseFee + Math.max(0, numberValue(form.initialLiquidity));
-    return baseFee;
+    return numberValue(getLaunchFeeBnb(form));
   }, [form]);
 
   useEffect(() => {
@@ -1154,157 +988,8 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadChainInfo() {
-      setChainInfo((current) => ({ ...current, loading: true, error: '' }));
-      try {
-        if (!isAddress(MINT_CONTRACT)) {
-          if (!cancelled) {
-            setChainInfo({
-              ...DEFAULT_CHAIN_INFO,
-              loading: false,
-              error: '',
-              tokenAddress: TOKEN_CONTRACT,
-              updatedAt: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-            });
-          }
-          return;
-        }
-
-        const [
-          ownerRaw,
-          tokenAddrRaw,
-          priceRaw,
-          amountPerUnitsRaw,
-          mintLimitRaw,
-          mintedRaw,
-          whitelistMintedRaw,
-          accMintLimitRaw,
-          whiteLimitRaw,
-          whitelistEnabledRaw,
-          finalizedRaw,
-          refundDeadlineRaw,
-          pairRaw,
-          fundAddressRaw,
-        ] = await publicRpcBatch([
-          { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('owner') },
-          { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('token') },
-          { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('mintPrice') },
-          { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('tokensPerMint') },
-          { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('totalMints') },
-          { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('mintedCount') },
-          { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('whitelistMintedCount') },
-          { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('maxMintPerWallet') },
-          { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('whitelistMintLimit') },
-          { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('whitelistEnabled') },
-          { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('finalized') },
-          { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('refundDeadline'), optional: true, fallback: '0x0' },
-          { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('liquidityPair'), optional: true, fallback: `0x${pad64(ZERO_ADDRESS)}` },
-          { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('receiver') },
-        ]);
-
-        const tokenAddress = decodeAddress(tokenAddrRaw) || TOKEN_CONTRACT;
-        const [nameRaw, symbolRaw, decimalsRaw, totalSupplyRaw] = await publicRpcBatch([
-          { to: tokenAddress, data: ERC20_SELECTORS.name },
-          { to: tokenAddress, data: ERC20_SELECTORS.symbol },
-          { to: tokenAddress, data: ERC20_SELECTORS.decimals },
-          { to: tokenAddress, data: ERC20_SELECTORS.totalSupply },
-        ]);
-
-        const tokenDecimals = hexToNumber(decimalsRaw) || 18;
-        let walletMinted = null;
-        let walletWhitelisted = null;
-        let walletBalance = '';
-        let refundableBnbWei = 0n;
-
-        if (wallet.address) {
-          try {
-            const [walletMintedRaw, walletWhitelistedRaw, walletBalanceRaw, refundableBnbRaw] = await publicRpcBatch([
-              { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('mintedByWallet', [wallet.address]) },
-              { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('whitelistList', [wallet.address]) },
-              { to: tokenAddress, data: selectorWithAddress(ERC20_SELECTORS.balanceOf, wallet.address) },
-              { to: MINT_CONTRACT, data: VAULT_VIEW_INTERFACE.encodeFunctionData('paidByWallet', [wallet.address]), optional: true, fallback: '0x0' },
-            ]);
-            walletMinted = walletMintedRaw ? hexToNumber(walletMintedRaw) : null;
-            walletWhitelisted = walletWhitelistedRaw ? decodeBool(walletWhitelistedRaw) : null;
-            walletBalance = walletBalanceRaw ? formatUnits(walletBalanceRaw, tokenDecimals, 4) : '';
-            refundableBnbWei = refundableBnbRaw ? hexToBigInt(refundableBnbRaw) : 0n;
-          } catch {
-            walletMinted = null;
-            walletWhitelisted = null;
-            walletBalance = '';
-            refundableBnbWei = 0n;
-          }
-        }
-
-        const nowSeconds = Math.floor(Date.now() / 1000);
-        const finalized = decodeBool(finalizedRaw);
-        const refundDeadline = hexToNumber(refundDeadlineRaw);
-        const whitelistEnabled = decodeBool(whitelistEnabledRaw);
-        const whitelistMinted = hexToNumber(whitelistMintedRaw);
-        const whiteLimit = hexToNumber(whiteLimitRaw);
-        const failed = !finalized && refundDeadline > 0 && nowSeconds >= refundDeadline;
-        const whitelistPhaseActive = whitelistEnabled && !finalized && !failed && whitelistMinted < whiteLimit;
-
-        const nextInfo = {
-          loading: false,
-          error: '',
-          owner: decodeAddress(ownerRaw),
-          tokenAddress,
-          tokenName: decodeString(nameRaw) || 'PEPE',
-          tokenSymbol: decodeString(symbolRaw) || 'PEPE',
-          tokenDecimals,
-          totalSupply: formatUnits(totalSupplyRaw, tokenDecimals, 0),
-          priceWei: hexToBigInt(priceRaw),
-          amountPerUnits: hexToBigInt(amountPerUnitsRaw),
-          mintLimit: hexToNumber(mintLimitRaw),
-          minted: hexToNumber(mintedRaw),
-          accMintLimit: hexToNumber(accMintLimitRaw),
-          accEachLimit: 0,
-          whiteLimit,
-          startWhitelist: whitelistPhaseActive,
-          start: !finalized && !failed,
-          failed,
-          refundDeadline,
-          liquidityBnbBps: 10000,
-          liquidityTokenBps: 5000,
-          pairAddress: decodeAddress(pairRaw),
-          fundAddress: decodeAddress(fundAddressRaw),
-          walletMinted,
-          walletWhitelisted,
-          walletBalance,
-          refundableBnbWei,
-          updatedAt: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-        };
-
-        if (cancelled) return;
-        setChainInfo(nextInfo);
-        setForm((current) => ({
-          ...current,
-          tokenName: current.tokenName.trim() ? current.tokenName : '',
-          symbol: current.symbol.trim() ? current.symbol : '',
-        }));
-      } catch (error) {
-        if (!cancelled) {
-          setChainInfo((current) => ({
-            ...current,
-            loading: false,
-            error: error.message || '链上参数读取失败',
-          }));
-        }
-      }
-    }
-
-    loadChainInfo();
-    return () => {
-      cancelled = true;
-    };
-  }, [wallet.address, chainRefresh]);
-
   function update(field, value) {
-    if (field === 'deadLiquidity' || field === 'renounceOwner') {
+    if (field === 'deadLiquidity') {
       setForm((current) => ({ ...current, [field]: true }));
       return;
     }
@@ -1322,11 +1007,6 @@ function App() {
 
   function notify(message) {
     setToast(message);
-  }
-
-  function refreshChainInfo() {
-    setChainRefresh((current) => current + 1);
-    notify('正在刷新链上参数');
   }
 
   async function refreshFactoryRecords(silent = false) {
@@ -1387,7 +1067,8 @@ function App() {
 
     setBusy(true);
     try {
-      const params = buildFactoryLaunchParams(form, address);
+      const metadataUri = await buildMetadataUri(form);
+      const params = buildFactoryLaunchParams(form, address, metadataUri);
       notify(`正在匹配 Token 地址尾号 ...${suffix}，找到后会自动填入 Salt。`);
       const vanity = await resolveLaunchSalt(address, params, suffix);
       update('vanitySuffix', vanity.vanitySuffix || suffix);
@@ -1490,7 +1171,8 @@ function App() {
     }
 
     const whitelistInfo = parseWhitelist(form.whitelistAddresses);
-    const params = buildFactoryLaunchParams(form, address);
+    const metadataUri = await buildMetadataUri(form);
+    const params = buildFactoryLaunchParams(form, address, metadataUri);
     const suffix = normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX);
     const vanity = await resolveLaunchSalt(address, params, suffix);
     const salt = suffix ? vanity.salt : saltToBytes32(form.vanitySalt, `${address}-${form.symbol}-${form.tokenName}`);
@@ -1537,6 +1219,17 @@ function App() {
       });
     }
 
+    let verifyQueued = false;
+    let verifyError = '';
+    if (form.autoVerify && deployment?.tokenAddress) {
+      try {
+        await queueProjectVerification(deployment.tokenAddress);
+        verifyQueued = true;
+      } catch (error) {
+        verifyError = error.message || '自动验源码入队失败';
+      }
+    }
+
     return {
       txHash,
       whitelistTxHash,
@@ -1552,91 +1245,14 @@ function App() {
       predictedTokenAddress: vanity.predictedTokenAddress || '',
       vanitySuffix: vanity.vanitySuffix || '',
       vanityAttempts: vanity.vanityAttempts || 0,
+      verifyQueued,
+      verifyError,
       actionLabel: form.whitelist ? '创建白名单Mint池' : '创建公开Mint池',
-    };
-  }
-
-  async function requestLiveMint(currentCheckout) {
-    const { provider, address } = await ensureWallet();
-    const quantity = Number(currentCheckout.quantity || 1);
-
-    if (chainInfo.failed) {
-      throw new Error('当前 Mint 池已进入失败状态，请使用退款入口。');
-    }
-
-    if (chainInfo.startWhitelist) {
-      const whitelistRaw = await ethCall(provider, MINT_CONTRACT, VAULT_VIEW_INTERFACE.encodeFunctionData('whitelistList', [address])).catch(() => '');
-      if (!whitelistRaw || !decodeBool(whitelistRaw)) {
-        throw new Error('白名单窗口已开启，当前钱包还不在白名单。');
-      }
-    }
-
-    if (chainInfo.accMintLimit > 0) {
-      const mintedRaw = await ethCall(provider, MINT_CONTRACT, VAULT_VIEW_INTERFACE.encodeFunctionData('mintedByWallet', [address])).catch(() => '');
-      const mintedByWallet = mintedRaw ? hexToNumber(mintedRaw) : 0;
-      if (mintedByWallet + quantity > chainInfo.accMintLimit) {
-        throw new Error('当前钱包已达到 Mint 上限。');
-      }
-    }
-
-    const txHash = await provider.request({
-      method: 'eth_sendTransaction',
-      params: [
-        {
-          from: address,
-          to: MINT_CONTRACT,
-          value: weiHex(currentCheckout.valueWei),
-          data: VAULT_WRITE_INTERFACE.encodeFunctionData('mint', [BigInt(quantity)]),
-        },
-      ],
-    });
-    return {
-      txHash,
-      from: address,
-      receiver: MINT_CONTRACT,
-      tokenAddress: chainInfo.tokenAddress || TOKEN_CONTRACT,
-      purpose: 'mint',
-      quantity,
-    };
-  }
-
-  async function requestWhitelistUpdate(currentCheckout) {
-    const { provider, address } = await ensureWallet();
-    const addresses = currentCheckout.addresses || [];
-
-    if (!sameAddress(address, chainInfo.owner)) {
-      throw new Error('当前钱包不是 Mint 合约 Owner，无法写入白名单。');
-    }
-    if (!addresses.length) {
-      throw new Error('请先添加有效白名单地址。');
-    }
-
-    const txHash = await provider.request({
-      method: 'eth_sendTransaction',
-      params: [
-        {
-          from: address,
-          to: MINT_CONTRACT,
-          data: encodeWhitelistCall(addresses, true),
-        },
-      ],
-    });
-    return {
-      txHash,
-      from: address,
-      receiver: MINT_CONTRACT,
-      tokenAddress: chainInfo.tokenAddress || TOKEN_CONTRACT,
-      purpose: 'whitelist',
-      whitelistCount: addresses.length,
     };
   }
 
   async function requestContractAction(currentCheckout) {
     const { provider, address } = await ensureWallet();
-
-    if (currentCheckout.requiresOwner && !sameAddress(address, chainInfo.owner)) {
-      throw new Error('当前钱包不是 Mint 合约 Owner，无法执行该管理操作。');
-    }
 
     const txHash = await provider.request({
       method: 'eth_sendTransaction',
@@ -1654,7 +1270,7 @@ function App() {
       txHash,
       from: address,
       receiver: currentCheckout.receiver,
-      tokenAddress: currentCheckout.tokenAddress || chainInfo.tokenAddress || TOKEN_CONTRACT,
+      tokenAddress: currentCheckout.tokenAddress || '',
       purpose: currentCheckout.purpose || 'ownerAction',
       actionLabel: currentCheckout.actionLabel,
     };
@@ -1733,7 +1349,7 @@ function App() {
     if (uintNumber(form.claimWaitSeconds) > 24 * 60 * 60) return '分红等待秒数不能超过 24 小时';
     if (isDividendTemplate(form.templateId)) {
       if (!isAddress(TOKEN_CONTRACT)) return '平台币地址未配置，暂不能创建分红模板';
-      if (numberValue(form.autoClaimThreshold) <= 0) return '平台币自动到账门槛必须大于 0';
+      if (String(form.rewardSwapThreshold || '').trim() && numberValue(form.rewardSwapThreshold) <= 0) return '换平台币触发量必须大于 0';
     }
     if (!form.deadLiquidity) return '平台规则要求底池 LP 全部打入 dead 黑洞';
     const whitelistInfo = parseWhitelist(form.whitelistAddresses);
@@ -1751,86 +1367,6 @@ function App() {
     if (mintParams.amountPerMint <= 0n) return '总量或 Mint 份数太小，无法计算每份可领代币';
     if (requiredSupply > totalSupply) return '总量不足：Mint 售卖份额 + 毕业进池代币已经超过代币总量';
     return '';
-  }
-
-  function openMintCheckout() {
-    if (!isAddress(MINT_CONTRACT)) {
-      notify('当前 Mint 合约地址无效。');
-      return;
-    }
-    if (chainInfo.failed) {
-      notify('当前 Mint 池已失败，请使用退款入口。');
-      return;
-    }
-
-    const available = getAvailableMintLimit(chainInfo, Boolean(wallet.address));
-    if (available === 0) {
-      notify('当前 Mint 已达到合约限制。');
-      return;
-    }
-
-    const requested = Math.max(1, Math.floor(numberValue(form.mintQuantity)));
-    const quantity = available > 0 ? Math.min(requested, available) : requested;
-    if (quantity !== requested) {
-      update('mintQuantity', String(quantity));
-      notify(`已按合约上限调整为 ${quantity} 份`);
-    }
-
-    const priceWei = chainInfo.priceWei > 0n ? chainInfo.priceWei : decimalToUnits('0.01', 18);
-    const tokenSymbol = chainInfo.tokenSymbol || 'Babypepe';
-    const amountPerUnits = chainInfo.amountPerUnits > 0n ? chainInfo.amountPerUnits : decimalToUnits('70000', chainInfo.tokenDecimals || 18);
-    const amountWei = priceWei * BigInt(quantity);
-    setCheckout({
-      type: 'mintLive',
-      title: `Mint：${tokenSymbol}`,
-      description: '这次会直接向 Mint 合约发送 BNB，钱包弹窗里的接收地址应为当前 Mint 合约。',
-      amountBnb: formatBnbFromWei(amountWei, 8),
-      valueWei: amountWei.toString(),
-      quantity,
-      receiver: MINT_CONTRACT,
-      actionLabel: '确认 Mint',
-      summary: [
-        ['Mint 合约', shortAddress(MINT_CONTRACT)],
-        ['代币合约', shortAddress(chainInfo.tokenAddress || TOKEN_CONTRACT)],
-        ['每份单价', `${formatBnbFromWei(priceWei, 8)} BNB`],
-        ['每份获得', `${formatUnits(amountPerUnits, chainInfo.tokenDecimals || 18, 4)} ${tokenSymbol}`],
-        ['本次数量', `${quantity} 份`],
-        ['Mint 状态', mintStatusLabel(chainInfo)],
-      ],
-    });
-  }
-
-  function openWhitelistCheckout() {
-    const whitelistInfo = parseWhitelist(form.whitelistAddresses);
-    if (whitelistInfo.invalid.length > 0) {
-      notify('白名单里有格式错误的钱包地址，请先修正。');
-      return;
-    }
-    if (!whitelistInfo.valid.length) {
-      notify('请至少添加 1 个有效白名单地址。');
-      return;
-    }
-    if (wallet.address && chainInfo.owner && !sameAddress(wallet.address, chainInfo.owner)) {
-      notify('当前钱包不是 Mint 合约 Owner，无法写入白名单。');
-      return;
-    }
-
-    setCheckout({
-      type: 'whitelist',
-      title: `写入白名单：${whitelistInfo.valid.length} 个地址`,
-      description: '这次会调用 Mint 合约的白名单批量写入方法，只有 Owner 钱包可以成功执行。',
-      amountBnb: '0',
-      valueWei: '0',
-      addresses: whitelistInfo.valid,
-      receiver: MINT_CONTRACT,
-      actionLabel: '确认写入白名单',
-      summary: [
-        ['Mint 合约', shortAddress(MINT_CONTRACT)],
-        ['Owner', shortAddress(chainInfo.owner)],
-        ['白名单地址', `${whitelistInfo.valid.length} 个`],
-        ['错误地址', `${whitelistInfo.invalid.length} 个`],
-      ],
-    });
   }
 
   async function openFactoryPlanCheckout() {
@@ -1885,7 +1421,7 @@ function App() {
         ...(dividendMode
           ? [
               ['分红平台币', shortAddress(TOKEN_CONTRACT)],
-              ['自动到账门槛', `${form.autoClaimThreshold || 4} 平台币`],
+              ['换平台币触发量', form.rewardSwapThreshold ? `${form.rewardSwapThreshold} ${cleanSymbol(form.symbol) || 'TOKEN'}` : '总量 0.01%'],
             ]
           : []),
         ['买/卖税', `${form.buyTax}% / ${form.sellTax}%`],
@@ -1898,58 +1434,6 @@ function App() {
         ['接收钱包', form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '确认时连接'],
         ['白名单', form.whitelist ? `${whitelistInfo.valid.length} 个地址 / ${mintParams.whiteLimit.toString()} 份` : '未开启'],
       ],
-    });
-  }
-
-  function openContractActionCheckout(actionId) {
-    if (chainInfo.loading) {
-      notify('正在读取链上参数，请稍后再试。');
-      return;
-    }
-    if (chainInfo.error) {
-      notify('链上参数读取失败，请先刷新。');
-      return;
-    }
-    if (wallet.address && chainInfo.owner && !sameAddress(wallet.address, chainInfo.owner)) {
-      notify('当前钱包不是 Mint 合约 Owner，无法执行管理操作。');
-      return;
-    }
-
-    const actions = {
-      enableWhitelist: {
-        title: '开启白名单窗口',
-        description: '这次会调用 Apple Mint Vault 的 setWhitelistEnabled(true)，重新打开白名单窗口。',
-        receiver: MINT_CONTRACT,
-        data: VAULT_WRITE_INTERFACE.encodeFunctionData('setWhitelistEnabled', [true]),
-        summary: [
-          ['Mint合约', shortAddress(MINT_CONTRACT)],
-          ['白名单名额', `${chainInfo.whiteLimit || 0} 份`],
-        ],
-      },
-      disableWhitelist: {
-        title: '开启公开 Mint',
-        description: '这次会调用 Apple Mint Vault 的 setWhitelistEnabled(false)，剩余份数进入公开 Mint。',
-        receiver: MINT_CONTRACT,
-        data: VAULT_WRITE_INTERFACE.encodeFunctionData('setWhitelistEnabled', [false]),
-        summary: [['Mint合约', shortAddress(MINT_CONTRACT)]],
-      },
-    };
-
-    const action = actions[actionId];
-    if (!action) return;
-
-    setCheckout({
-      type: 'contractAction',
-      title: action.title,
-      description: action.description,
-      amountBnb: '0',
-      valueWei: '0',
-      receiver: action.receiver,
-      data: action.data,
-      requiresOwner: true,
-      purpose: actionId,
-      actionLabel: action.title,
-      summary: [['Owner', shortAddress(chainInfo.owner)], ...action.summary],
     });
   }
 
@@ -1994,11 +1478,7 @@ function App() {
     setBusy(true);
     try {
       let payment;
-      if (checkout.type === 'mintLive') {
-        payment = await requestLiveMint(checkout);
-      } else if (checkout.type === 'whitelist') {
-        payment = await requestWhitelistUpdate(checkout);
-      } else if (checkout.type === 'contractAction') {
+      if (checkout.type === 'contractAction') {
         payment = await requestContractAction(checkout);
       } else if (checkout.type === 'factoryCreate') {
         payment = await requestFactoryCreate(checkout);
@@ -2006,15 +1486,11 @@ function App() {
         payment = await requestPayment(checkout.amountBnb, checkout.type);
       }
       const actionName =
-        checkout.type === 'mintLive'
-          ? 'Mint'
-          : checkout.type === 'whitelist'
-            ? '白名单写入'
-            : checkout.type === 'contractAction'
-              ? checkout.actionLabel || '合约管理'
-              : checkout.type === 'factoryCreate'
-                ? '创建新币'
-                : '发射';
+        checkout.type === 'contractAction'
+          ? checkout.actionLabel || '合约管理'
+          : checkout.type === 'factoryCreate'
+            ? '创建新币'
+            : '发射';
       const result = {
         ...payment,
         amountBnb: checkout.amountBnb,
@@ -2027,14 +1503,15 @@ function App() {
       };
       setLastResult(result);
       setCheckout(null);
-      setChainRefresh((current) => current + 1);
       if (checkout.type === 'factoryCreate') await refreshFactoryRecords(true);
       notify(
         checkout.type === 'factoryCreate' && result.tokenAddress
-          ? '新币已发射，Token 地址已解析并写入发射记录。'
-          : checkout.type === 'whitelist'
-            ? '白名单交易已发出，等待链上确认。'
-            : '真实钱包交易已发出，等待链上确认。',
+          ? result.verifyQueued
+            ? '新币已发射，Token 地址已解析，自动验源码已入队。'
+            : result.verifyError
+              ? `新币已发射，但自动验源码入队失败：${result.verifyError}`
+              : '新币已发射，Token 地址已解析并写入发射记录。'
+          : '真实钱包交易已发出，等待链上确认。',
       );
       setActivePage('launch');
       setLaunchStep('preview');
@@ -2072,11 +1549,9 @@ function App() {
               wallet={wallet}
               selectedMode={selectedMode}
               selectedTemplate={selectedTemplate}
-              chainInfo={chainInfo}
               update={update}
               navigate={navigateToPage}
               connectWallet={connectWallet}
-              openMintCheckout={openMintCheckout}
             />
           )}
           {activePage === 'rules' && <RulesPage />}
@@ -2100,7 +1575,6 @@ function App() {
               lastResult={lastResult}
               launchStep={launchStep}
               setLaunchStep={setLaunchStep}
-              chainInfo={chainInfo}
               mineVanitySalt={mineVanitySalt}
               vanityPreview={vanityPreview}
               factoryRecords={factoryRecords}
@@ -2180,10 +1654,9 @@ function Topbar({ wallet, activePage, navigate, navigateToMint, connectWallet })
   );
 }
 
-function HomePage({ form, wallet, selectedMode, selectedTemplate, chainInfo, update, navigate, connectWallet, openMintCheckout }) {
+function HomePage({ form, wallet, selectedMode, selectedTemplate, update, navigate, connectWallet }) {
   return (
     <>
-      <ActiveMintProject wallet={wallet} chainInfo={chainInfo} connectWallet={connectWallet} openMintCheckout={openMintCheckout} />
       <Hero
         form={form}
         wallet={wallet}
@@ -2195,88 +1668,6 @@ function HomePage({ form, wallet, selectedMode, selectedTemplate, chainInfo, upd
       />
       <MetricStrip />
     </>
-  );
-}
-
-function ActiveMintProject({ wallet, chainInfo, connectWallet, openMintCheckout }) {
-  const tokenName = chainInfo.tokenName || 'Babypepe';
-  const tokenSymbol = chainInfo.tokenSymbol || 'Babypepe';
-  const mintLimit = Math.max(0, chainInfo.mintLimit || 0);
-  const minted = Math.max(0, chainInfo.minted || 0);
-  const progress = mintLimit > 0 ? Math.min(100, (minted / mintLimit) * 100) : 0;
-  const mintPrice = chainInfo.priceWei > 0n ? formatBnbFromWei(chainInfo.priceWei, 8) : '0.01';
-  const amountPerMint = chainInfo.amountPerUnits > 0n ? formatUnits(chainInfo.amountPerUnits, chainInfo.tokenDecimals, 4) : '70000';
-  const whitelistLabel =
-    chainInfo.walletWhitelisted === true
-      ? '当前钱包在白名单'
-      : chainInfo.walletWhitelisted === false
-        ? '当前钱包未在白名单'
-        : wallet.address
-          ? '白名单读取中'
-          : '连接钱包检查白名单';
-
-  return (
-    <section className="active-mint-panel" id="active-mint">
-      <div className="active-mint-copy">
-        <span className="eyebrow">Live Mint</span>
-        <h2>{tokenName}</h2>
-        <p>白名单 Mint 已接入台子，用户可以从这里直接进入 Mint。价格、进度和状态均从链上 Mint 合约读取。</p>
-        <div className="active-mint-tags">
-          <span className="status-pill green">{mintStatusLabel(chainInfo)}</span>
-          <span className="status-pill cyan">{whitelistLabel}</span>
-          <span className="status-pill green">0.01 BNB / 份</span>
-        </div>
-      </div>
-      <div className="active-mint-card">
-        <div className="token-preview compact-preview">
-          <div className="preview-logo frog-preview">
-            <FrogMark />
-          </div>
-          <div>
-            <b>{tokenName}</b>
-            <span>{tokenSymbol} · BSC 白名单 Mint</span>
-          </div>
-        </div>
-        <div className="mint-progress-row">
-          <span>
-            <em>Mint进度</em>
-            <b>
-              {minted}/{mintLimit || '--'} 份
-            </b>
-          </span>
-          <strong>{progress.toFixed(2)}%</strong>
-        </div>
-        <div className="progress-track" aria-label="Mint进度">
-          <span style={{ width: `${progress}%` }} />
-        </div>
-        <div className="active-mint-actions">
-          {!wallet.address && (
-            <button className="secondary" onClick={connectWallet} type="button">
-              <Wallet size={16} />
-              连接钱包
-            </button>
-          )}
-          <button className="primary" onClick={openMintCheckout} type="button">
-            <Coins size={16} />
-            马上 Mint
-          </button>
-          <a className="secondary" href={addressUrl(MINT_CONTRACT)} target="_blank" rel="noreferrer">
-            <ExternalLink size={15} />
-            Mint合约
-          </a>
-          <a className="secondary" href={addressUrl(TOKEN_CONTRACT)} target="_blank" rel="noreferrer">
-            <ExternalLink size={15} />
-            代币合约
-          </a>
-        </div>
-        <div className="preview-lines active-mint-lines">
-          <MiniMetric label="Mint价格" value={`${mintPrice} BNB`} />
-          <MiniMetric label="每份获得" value={`${amountPerMint} ${tokenSymbol}`} />
-          <MiniMetric label="Mint合约" value={shortAddress(MINT_CONTRACT)} />
-          <MiniMetric label="代币合约" value={shortAddress(TOKEN_CONTRACT)} />
-        </div>
-      </div>
-    </section>
   );
 }
 
@@ -2564,7 +1955,6 @@ function LaunchWorkbench({
   lastResult,
   launchStep,
   setLaunchStep,
-  chainInfo,
   mineVanitySalt,
   vanityPreview,
   factoryRecords,
@@ -2577,18 +1967,13 @@ function LaunchWorkbench({
   const previousStep = launchWizardSteps[currentStepIndex - 1];
   const nextStep = launchWizardSteps[currentStepIndex + 1];
   const whitelistInfo = parseWhitelist(form.whitelistAddresses);
-  const tokenSymbol = chainInfo.tokenSymbol || form.symbol || 'PEPE';
-  const liveMintPrice = chainInfo.priceWei > 0n ? formatBnbFromWei(chainInfo.priceWei, 8) : form.mintPrice;
-  const liveTokensPerMint =
-    chainInfo.amountPerUnits > 0n ? formatUnits(chainInfo.amountPerUnits, chainInfo.tokenDecimals, 4) : form.tokensPerMint;
-  const mintProgress = chainInfo.mintLimit ? `${chainInfo.minted}/${chainInfo.mintLimit}` : `${chainInfo.minted || 0}`;
+  const tokenSymbol = form.symbol || 'PEPE';
   const mintParams = getFairMintParams(form);
   const selectedMintPlaybook = form.whitelist ? 'whitelist' : 'public';
 
   function chooseMintPlaybook(playbook) {
     update('templateId', 'fair-mint');
     update('whitelist', playbook.whitelist);
-    update('priceCurve', playbook.priceCurve);
   }
 
   return (
@@ -2760,14 +2145,6 @@ function LaunchWorkbench({
               </FormField>
               {isDividendTemplate(form.templateId) && (
                 <>
-                  <FormField label="平台币到账门槛">
-                    <input value={form.autoClaimThreshold} onChange={(event) => update('autoClaimThreshold', event.target.value)} inputMode="decimal" />
-                    <small className="field-hint">达到该平台币数量后自动尝试打到持币钱包，默认按 4U 口径填写。</small>
-                  </FormField>
-                  <FormField label="自动处理批量">
-                    <input value={form.autoClaimBatchSize} onChange={(event) => update('autoClaimBatchSize', event.target.value)} inputMode="numeric" />
-                    <small className="field-hint">每次交易最多滚动处理多少个持币地址，数值越大越耗 Gas。</small>
-                  </FormField>
                   <FormField label="换平台币触发量">
                     <input value={form.rewardSwapThreshold} onChange={(event) => update('rewardSwapThreshold', event.target.value)} inputMode="decimal" placeholder="留空为总量0.01%" />
                     <small className="field-hint">税收代币累计到该数量后，自动换成平台币进入分红账本。</small>
@@ -2777,9 +2154,6 @@ function LaunchWorkbench({
               <FormField label="销毁分配 %">
                 <input value={form.burnRate} onChange={(event) => update('burnRate', event.target.value)} inputMode="decimal" />
                 <small className="field-hint">当前分配合计 {formatBnb(getTaxSplitTotal(form))}%</small>
-              </FormField>
-              <FormField label="开始时间">
-                <input value={form.startTime} onChange={(event) => update('startTime', event.target.value)} placeholder="立即 / 指定时间" />
               </FormField>
               <FormField label="合约尾号">
                 <input
@@ -2808,13 +2182,6 @@ function LaunchWorkbench({
                 label="底池自动转 dead"
                 text="平台强制规则：初始 LP 或 Mint 累积 LP 全部进入黑洞地址。"
                 onChange={(value) => update('deadLiquidity', value)}
-              />
-              <ToggleField
-                checked
-                disabled
-                label="部署后放弃 Owner"
-                text="平台强制规则：新币无 Owner，Mint 池可按创建参数直接丢权限。"
-                onChange={(value) => update('renounceOwner', value)}
               />
               <ToggleField
                 checked={form.whitelist}
@@ -3039,7 +2406,7 @@ function LaunchWorkbench({
                   <MiniMetric label="高级税" value={getAdvancedTaxSummary(form)} />
                   <MiniMetric label="税收分配" value={getTaxSplitSummary(form)} />
                   {isDividendTemplate(form.templateId) && <MiniMetric label="分红平台币" value={shortAddress(TOKEN_CONTRACT)} />}
-                  {isDividendTemplate(form.templateId) && <MiniMetric label="自动到账门槛" value={`${form.autoClaimThreshold || 4} 平台币`} />}
+                  {isDividendTemplate(form.templateId) && <MiniMetric label="换币触发" value={form.rewardSwapThreshold ? `${form.rewardSwapThreshold} ${form.symbol || 'TOKEN'}` : '总量0.01%'} />}
                   <MiniMetric label="LP接收" value={shortAddress(DEAD_ADDRESS)} />
                   <MiniMetric label="尾号定制" value={`...${normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)}`} />
                   <MiniMetric label="Token权限" value="项目方 Owner / 打满后 LP 黑洞" />
@@ -3107,15 +2474,12 @@ function LaunchWorkbench({
                       Mint池
                     </a>
                   )}
-                  <a
-                    className="secondary"
-                    href={pancakeUrl(lastResult.tokenAddress || chainInfo.tokenAddress || TOKEN_CONTRACT)}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <ExternalLink size={15} />
-                    Pancake交易
-                  </a>
+                  {lastResult.tokenAddress && (
+                    <a className="secondary" href={pancakeUrl(lastResult.tokenAddress)} target="_blank" rel="noreferrer">
+                      <ExternalLink size={15} />
+                      Pancake交易
+                    </a>
+                  )}
                 </div>
               </div>
             ) : (
@@ -3277,7 +2641,7 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
         <MiniMetric label="模板协议" value={dividendMode ? '持币分红平台币' : selectedTemplate.name} />
         <MiniMetric label="模板ID" value={shortAddress(String(getTemplateId(form.templateId)))} />
         {dividendMode && <MiniMetric label="分红币" value={shortAddress(TOKEN_CONTRACT)} />}
-        {dividendMode && <MiniMetric label="到账门槛" value={`${form.autoClaimThreshold || 4} 平台币`} />}
+        {dividendMode && <MiniMetric label="换币触发" value={form.rewardSwapThreshold ? `${form.rewardSwapThreshold} ${cleanSymbol(form.symbol) || 'TOKEN'}` : '总量0.01%'} />}
         <MiniMetric label="创建者" value={creator ? shortAddress(creator) : '连接后填入'} />
         <MiniMetric label="创建费" value={`${getLaunchFeeBnb(form)} BNB`} />
         <MiniMetric label="Mint单价" value={`${formatBnbFromWei(mintParams.price, 8)} BNB`} />
@@ -3596,13 +2960,9 @@ function DeploymentDetailModal({ deployment, close, onRefund }) {
 
 function CheckoutModal({ checkout, wallet, busy, confirm, cancel }) {
   const ActionIcon =
-    checkout.type === 'whitelist'
-      ? LockKeyhole
-      : checkout.type === 'mintLive'
-        ? Coins
-        : checkout.type === 'contractAction' || checkout.type === 'factoryPlan' || checkout.type === 'factoryCreate'
-          ? Settings
-          : CreditCard;
+    checkout.type === 'contractAction' || checkout.type === 'factoryPlan' || checkout.type === 'factoryCreate'
+      ? Settings
+      : CreditCard;
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">

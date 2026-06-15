@@ -25,9 +25,15 @@ npm run hardhat:compile
 npm run deploy:factory:bsc
 ```
 
-## 靓号 Salt 后端
+## 后端：靓号、资产与自动验源码
 
-尾号校验依赖 CREATE2 salt 搜索，前端会请求本项目的后端接口 `/api/vanity-salt`。本地开发时需要同时运行后端和前端：
+前端依赖本项目后端处理三类链上配套工作：
+
+- `/api/vanity-salt`：按 Factory 参数搜索 CREATE2 salt，默认匹配 `...eeee`
+- `/api/assets` 与 `/api/assets/:filename`：保存 Logo 数据并返回可写入 `metadataUri` 的公开 URL
+- `/api/verify-project` 与 `/api/verify-status`：把新 Token 加入自动验源码队列，后端也会轮询 Factory 新项目并自动 backfill
+
+本地开发时需要同时运行后端和前端：
 
 ```bash
 npm install
@@ -36,7 +42,7 @@ npm run backend
 npm run dev
 ```
 
-生产环境部署时，需要把 `VITE_APP_BACKEND_URL` 配置为公开可访问的后端地址，并让后端的 `APPLE_FACTORY_ADDRESS` 指向同一个 `VITE_FACTORY_CONTRACT`。
+生产环境部署时，需要把 `VITE_APP_BACKEND_URL` 配置为公开可访问的后端地址，并让后端的 `APPLE_FACTORY_ADDRESS` 指向同一个 `VITE_FACTORY_CONTRACT`。自动验源码需要配置 `BSCSCAN_API_KEY`，后端会调用 `npm run contracts:verify:project` 分别验证 `AppleToken` 和 `AppleMintVault`。
 
 ## Cloudflare Pages
 
@@ -60,7 +66,6 @@ VITE_PAYMENT_RECEIVER=
 VITE_FACTORY_CONTRACT=0xEd168e31FD49E09794E8d21c2DE92b7188Ed3eE9
 VITE_VANITY_SUFFIX=eeee
 VITE_APP_BACKEND_URL=http://localhost:8787
-VITE_MINT_CONTRACT=
 VITE_TOKEN_CONTRACT=
 
 PRIVATE_KEY=
@@ -76,4 +81,16 @@ APPLE_BACKEND_PORT=8787
 APPLE_CHAIN_ID=56
 APPLE_FACTORY_ADDRESS=0xEd168e31FD49E09794E8d21c2DE92b7188Ed3eE9
 APPLE_BACKEND_TOKEN=
+APPLE_PUBLIC_BASE_URL=http://localhost:8787
+APPLE_ASSET_DIR=work/assets
+APPLE_RATE_WINDOW_MS=60000
+APPLE_VANITY_RATE_LIMIT=8
+APPLE_VERIFY_RATE_LIMIT=30
+APPLE_ASSET_RATE_LIMIT=20
+AUTO_VERIFY_PROJECTS=true
+VERIFY_POLL_MS=30000
+VERIFY_BACKFILL_COUNT=12
+VERIFY_INITIAL_DELAY_MS=20000
+VERIFY_RETRY_DELAY_MS=60000
+VERIFY_RETRY_LIMIT=5
 ```

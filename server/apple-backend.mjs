@@ -1,5 +1,7 @@
 import "dotenv/config";
 
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -33,11 +35,12 @@ const factorySource =
   process.env.APPLE_FACTORY_ADDRESS ||
   process.env.VITE_FACTORY_CONTRACT ||
   process.env.FACTORY_ADDRESS ||
+  process.env.VITE_LAUNCHPAD_FACTORY_ADDRESS ||
   deployment.factory ||
   "";
 
 if (!isAddress(factorySource)) {
-  throw new Error("Missing APPLE_FACTORY_ADDRESS or VITE_FACTORY_CONTRACT for vanity backend.");
+  throw new Error("Missing APPLE_FACTORY_ADDRESS or VITE_FACTORY_CONTRACT for Apple backend.");
 }
 
 const chainId = Number(process.env.APPLE_CHAIN_ID || process.env.VITE_CHAIN_ID || 56);
@@ -47,9 +50,21 @@ const provider = new JsonRpcProvider(rpcUrl, chainId);
 const factory = new Contract(factoryAddress, factoryArtifact.abi, provider);
 const port = Number(process.env.APPLE_BACKEND_PORT || 8787);
 const backendToken = process.env.APPLE_BACKEND_TOKEN || "";
+const autoVerify = process.env.AUTO_VERIFY_PROJECTS !== "false";
+const pollMs = Number(process.env.VERIFY_POLL_MS || 30000);
+const backfillCount = Number(process.env.VERIFY_BACKFILL_COUNT || 12);
+const verifyInitialDelayMs = Number(process.env.VERIFY_INITIAL_DELAY_MS || 20000);
+const verifyRetryDelayMs = Number(process.env.VERIFY_RETRY_DELAY_MS || 60000);
+const verifyRetryLimit = Number(process.env.VERIFY_RETRY_LIMIT || 5);
 const rateWindowMs = Number(process.env.APPLE_RATE_WINDOW_MS || 60000);
+const verifyRateLimit = Number(process.env.APPLE_VERIFY_RATE_LIMIT || 30);
 const vanityRateLimit = Number(process.env.APPLE_VANITY_RATE_LIMIT || 8);
+const assetRateLimit = Number(process.env.APPLE_ASSET_RATE_LIMIT || 20);
+const assetDir = path.resolve(process.env.APPLE_ASSET_DIR || path.join(rootDir, "work", "assets"));
+const jobs = new Map();
 const rateBuckets = new Map();
+let lastTokenCount = 0;
+let verifying = false;
 
 const server = createServer(async (request, response) => {
   try {
@@ -67,7 +82,40 @@ const server = createServer(async (request, response) => {
         chainId,
         factory: factoryAddress,
         requiredTokenSuffix: await readFactoryRequiredSuffix(),
+        autoVerify,
+        verifierReady: Boolean(process.env.BSCSCAN_API_KEY),
+        queued: [...jobs.values()].filter((job) => job.status === "queued").length,
+        running: [...jobs.values()].filter((job) => job.status === "running").length,
       });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/verify-status") {
+      const token = normalizeAddress(url.searchParams.get("token") || "");
+      sendJson(response, 200, { token, job: jobs.get(token.toLowerCase()) || null });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/api/assets/")) {
+      await sendAsset(response, url.pathname);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/assets") {
+      limitRequest(request, "asset", assetRateLimit);
+      const body = await readBody(request);
+      const asset = await saveDataUrlAsset(body.dataUrl, request);
+      sendJson(response, 201, { ok: true, ...asset });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/verify-project") {
+      limitRequest(request, "verify", verifyRateLimit);
+      const body = await readBody(request);
+      const token = normalizeAddress(body.token);
+      await assertFactoryProject(token);
+      queueVerify(token, "api");
+      sendJson(response, 202, { ok: true, token, job: jobs.get(token.toLowerCase()) });
       return;
     }
 
@@ -86,10 +134,126 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, () => {
-  console.log(`Apple vanity backend listening on :${port}`);
+  console.log(`Apple backend listening on :${port}`);
   console.log(`Factory: ${factoryAddress}`);
   console.log(`RPC: ${rpcUrl}`);
+  if (autoVerify) {
+    void syncProjects(true);
+    setInterval(() => void syncProjects(false), pollMs);
+  }
 });
+
+async function syncProjects(backfill) {
+  try {
+    const count = Number(await factory.allTokensLength());
+    const start = backfill ? Math.max(0, count - backfillCount) : lastTokenCount;
+    for (let index = start; index < count; index += 1) {
+      const token = getAddress(await factory.allTokens(index));
+      queueVerify(token, backfill ? "backfill" : "monitor");
+    }
+    lastTokenCount = count;
+  } catch (error) {
+    console.error("Project sync failed:", error instanceof Error ? error.message : error);
+  }
+}
+
+function queueVerify(token, source) {
+  const key = token.toLowerCase();
+  const current = jobs.get(key);
+  if (current && ["queued", "running", "success"].includes(current.status)) {
+    return;
+  }
+
+  jobs.set(key, {
+    token,
+    source,
+    status: "queued",
+    attempts: 0,
+    logs: [],
+    nextRunAt: source === "backfill" ? "" : new Date(Date.now() + verifyInitialDelayMs).toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  void drainVerifyQueue();
+}
+
+async function drainVerifyQueue() {
+  if (verifying) {
+    return;
+  }
+  verifying = true;
+
+  try {
+    while (true) {
+      const now = Date.now();
+      const queuedJobs = [...jobs.values()].filter((item) => item.status === "queued");
+      const job = queuedJobs.find((item) => !item.nextRunAt || Date.parse(item.nextRunAt) <= now);
+      if (!job) {
+        const nextRunAt = queuedJobs
+          .map((item) => (item.nextRunAt ? Date.parse(item.nextRunAt) : now))
+          .filter((time) => Number.isFinite(time))
+          .sort((left, right) => left - right)[0];
+        if (nextRunAt) {
+          setTimeout(() => void drainVerifyQueue(), Math.max(1000, nextRunAt - now));
+        }
+        return;
+      }
+
+      job.status = "running";
+      job.nextRunAt = "";
+      job.updatedAt = new Date().toISOString();
+
+      try {
+        const logs = await runVerify(job.token);
+        job.status = "success";
+        job.logs = logs;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        job.attempts = Number(job.attempts || 0) + 1;
+        job.logs = [message];
+        if (job.attempts < verifyRetryLimit) {
+          job.status = "queued";
+          job.nextRunAt = new Date(Date.now() + verifyRetryDelayMs * job.attempts).toISOString();
+        } else {
+          job.status = "error";
+          job.nextRunAt = "";
+        }
+      }
+      job.updatedAt = new Date().toISOString();
+    }
+  } finally {
+    verifying = false;
+  }
+}
+
+function runVerify(token) {
+  return new Promise((resolve, reject) => {
+    const logs = [];
+    const child = spawn("npm", ["run", "contracts:verify:project"], {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        PROJECT_TOKEN: token,
+        FACTORY_ADDRESS: factoryAddress,
+        APPLE_FACTORY_ADDRESS: factoryAddress,
+        BSC_RPC_URL: rpcUrl,
+        APPLE_RPC_URL: rpcUrl,
+      },
+      shell: process.platform === "win32",
+    });
+
+    child.stdout.on("data", (chunk) => logs.push(String(chunk)));
+    child.stderr.on("data", (chunk) => logs.push(String(chunk)));
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve(logs.slice(-80));
+        return;
+      }
+
+      reject(new Error(logs.join("") || `verify exited with code ${code}`));
+    });
+  });
+}
 
 async function findVanitySalt(body) {
   const requestedSuffix = String(body.suffix || process.env.VITE_VANITY_SUFFIX || "eeee")
@@ -214,7 +378,7 @@ function normalizeLaunchParams(params) {
     removeLiquidityTaxBps: Number(params.removeLiquidityTaxBps || 0),
     launchProtectionTaxBps: Number(params.launchProtectionTaxBps || 0),
     launchProtectionBlocks: Number(params.launchProtectionBlocks || 0),
-    claimWait: Number(params.claimWait || 0),
+    claimWait: Number(params.claimWait || 60),
     fundFeeBps: Number(params.fundFeeBps || 0),
     lpFeeBps: Number(params.lpFeeBps || 0),
     dividendFeeBps: Number(params.dividendFeeBps || 0),
@@ -222,6 +386,97 @@ function normalizeLaunchParams(params) {
     whitelistMintCount: BigInt(params.whitelistMintCount || 0),
     whitelistEnabled: Boolean(params.whitelistEnabled),
   };
+}
+
+async function assertFactoryProject(token) {
+  const project = await factory.getProject(token);
+  if (String(project.token).toLowerCase() !== token.toLowerCase()) {
+    throw new Error("Token is not indexed by the configured Factory.");
+  }
+}
+
+async function saveDataUrlAsset(dataUrl, request) {
+  const raw = String(dataUrl || "");
+  const match = /^data:(image\/(?:png|jpeg|jpg|webp|gif|svg\+xml));base64,([a-zA-Z0-9+/=]+)$/i.exec(raw);
+  if (!match) {
+    throw new Error("Invalid asset data URL.");
+  }
+
+  const mimeType = normalizeAssetMimeType(match[1]);
+  const bytes = Buffer.from(match[2], "base64");
+  if (!bytes.length || bytes.length > 260 * 1024) {
+    throw new Error("Asset is too large.");
+  }
+
+  const hash = createHash("sha256").update(mimeType).update(bytes).digest("hex");
+  const filename = `${hash.slice(0, 32)}.${assetExtension(mimeType)}`;
+  fs.mkdirSync(assetDir, { recursive: true });
+  const filePath = path.join(assetDir, filename);
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, bytes);
+  }
+
+  return {
+    url: `${publicBaseUrl(request)}/api/assets/${filename}`,
+    mimeType,
+    bytes: bytes.length,
+  };
+}
+
+async function sendAsset(response, pathname) {
+  const filename = path.basename(decodeURIComponent(pathname));
+  if (!/^[0-9a-f]{32}\.(?:png|jpg|webp|gif|svg)$/.test(filename)) {
+    sendJson(response, 404, { error: "Not found" });
+    return;
+  }
+
+  const filePath = path.join(assetDir, filename);
+  if (!fs.existsSync(filePath)) {
+    sendJson(response, 404, { error: "Not found" });
+    return;
+  }
+
+  response.writeHead(200, {
+    "content-type": mimeTypeForAsset(filename),
+    "cache-control": "public, max-age=31536000, immutable",
+  });
+  fs.createReadStream(filePath).pipe(response);
+}
+
+function publicBaseUrl(request) {
+  const configured = String(process.env.APPLE_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
+  if (configured) {
+    return configured;
+  }
+
+  const proto = String(request.headers["x-forwarded-proto"] || "http").split(",")[0].trim() || "http";
+  const host = request.headers["x-forwarded-host"] || request.headers.host || `localhost:${port}`;
+  return `${proto}://${host}`;
+}
+
+function normalizeAssetMimeType(mimeType) {
+  const lower = String(mimeType).toLowerCase();
+  return lower === "image/jpg" ? "image/jpeg" : lower;
+}
+
+function assetExtension(mimeType) {
+  if (mimeType === "image/jpeg") {
+    return "jpg";
+  }
+  if (mimeType === "image/svg+xml") {
+    return "svg";
+  }
+  return mimeType.replace("image/", "");
+}
+
+function mimeTypeForAsset(filename) {
+  if (filename.endsWith(".jpg")) {
+    return "image/jpeg";
+  }
+  if (filename.endsWith(".svg")) {
+    return "image/svg+xml";
+  }
+  return `image/${filename.split(".").pop()}`;
 }
 
 function clampIterations(value) {
