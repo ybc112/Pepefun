@@ -2104,18 +2104,30 @@ function LaunchWorkbench({
         title="部署新币"
         text="一条真实发币流程：部署代币、创建 Mint 池、匹配 eeee 尾号，并把验源码任务送入后端队列。"
       />
+      <div className="status-strip launch-status-strip">
+        <div className={wallet.address ? 'status-dot ok' : 'status-dot'} />
+        <span className="launch-network-status">
+          <small>{wallet.address ? '当前网络' : '当前网络'}</small>
+          <strong>{wallet.address ? 'BNB Smart Chain' : '等待连接钱包'}</strong>
+          <em>
+            工厂 {shortAddress(FACTORY_CONTRACT)} · 部署费 {getLaunchFeeBnb(form)} BNB · 新币尾号 ...{normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)}
+          </em>
+        </span>
+        <button className="secondary" disabled={busy} onClick={() => refreshFactoryRecords(false)} type="button">
+          <Timer size={15} />
+          刷新链上记录
+        </button>
+      </div>
       <form className="launch-workbench" onSubmit={submitLaunch}>
         <div className="launch-main quick-launch-main">
           <div className="quick-launch-hero">
             <div>
               <span className="eyebrow">Quick Launch</span>
-              <h3>核心参数</h3>
-              <p>先填代币和 Mint 参数，高级税率与社群资料折叠在下方，确认后拉起真实钱包交易。</p>
+              <h3>部署你的发射代币</h3>
+              <p>填写名称、符号、头像和 Mint 规则；确认后拉起真实钱包交易，创建新币和 Mint 池。</p>
             </div>
             <div className="quick-launch-status">
-              <span className="status-pill green">尾号 ...{normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)}</span>
-              <span className="status-pill green">自动验源码 {form.autoVerify ? '开' : '关'}</span>
-              <span className="status-pill cyan">{form.whitelist ? '白名单Mint' : '公开Mint'}</span>
+              <span className="status-pill green">部署费 {getLaunchFeeBnb(form)} BNB</span>
             </div>
           </div>
 
