@@ -968,6 +968,8 @@ function App() {
             metadataHash: keccak256(toUtf8Bytes(item.metadataUri || '')),
             mintCount: Number(item.mintCount),
             whitelistMintCount: Number(item.whitelistMintCount),
+            publicMintCount: Number(item.publicMintCount),
+            whitelistEnabled: Boolean(item.whitelistEnabled),
           }))
           .reverse(),
       );
@@ -1228,10 +1230,13 @@ function App() {
       return;
     }
     const valueWei = mintPriceWei * mintQuantity;
+    const whitelistActive = Boolean(deployment.whitelistEnabled && Number(deployment.whitelistMintCount || 0) > 0);
     setCheckout({
       type: 'contractAction',
       title: `Mint ${mintQuantity.toString()} 份`,
-      description: '这次会调用该 Mint 池的 mint 方法，钱包弹窗里的接收地址应为当前项目的 Mint 池。',
+      description: whitelistActive
+        ? '这次会调用 Mint 池的 mint 方法，钱包弹窗里的收款方应为 Mint 池。当前白名单窗口开启中，如果当前钱包没有被加入白名单，交易会失败。'
+        : '这次会调用 Mint 池的 mint 方法，钱包弹窗里的收款方应为当前项目的 Mint 池，不是 Token 合约。',
       amountBnb: formatBnbFromWei(valueWei, 8),
       valueWei: valueWei.toString(),
       receiver: deployment.pool,
@@ -1245,6 +1250,7 @@ function App() {
         ['Token', shortAddress(deployment.token)],
         ['Mint数量', `${mintQuantity.toString()} 份`],
         ['Mint单价', `${formatBnbFromWei(mintPriceWei, 8)} BNB`],
+        ...(whitelistActive ? [['白名单提示', '当前钱包必须已在白名单，或先由项目方开启公开 Mint']] : []),
       ],
     });
   }
@@ -1547,6 +1553,7 @@ function App() {
               factoryRecordsCount={factoryRecordsCount}
               refreshFactoryRecords={refreshFactoryRecords}
               onSelectDeployment={setSelectedDeployment}
+              onMintDeployment={openPoolMintCheckout}
               busy={busy}
             />
           )}
@@ -1556,6 +1563,7 @@ function App() {
               total={factoryRecordsCount}
               refreshFactoryRecords={refreshFactoryRecords}
               onSelectDeployment={setSelectedDeployment}
+              onMintDeployment={openPoolMintCheckout}
               copyText={copyText}
               startLaunch={startLaunch}
             />
@@ -2017,6 +2025,7 @@ function LaunchWorkbench({
   factoryRecordsCount,
   refreshFactoryRecords,
   onSelectDeployment,
+  onMintDeployment,
   busy,
 }) {
   const [advancedOpen, setAdvancedOpen] = useState(launchStep === 'rules' || launchStep === 'preview');
@@ -2488,7 +2497,13 @@ function LaunchWorkbench({
                 刷新
               </button>
             </div>
-            <DeploymentRecordsList records={factoryRecords.slice(0, 8)} compact onSelectDeployment={onSelectDeployment} copyText={copyText} />
+            <DeploymentRecordsList
+              records={factoryRecords.slice(0, 8)}
+              compact
+              onSelectDeployment={onSelectDeployment}
+              onMintDeployment={onMintDeployment}
+              copyText={copyText}
+            />
           </Panel>
         </aside>
       </form>
@@ -2500,7 +2515,7 @@ function deploymentKey(item) {
   return `${item.token || item.pool || item.creator}-${item.blockNumber}-${item.salt}`;
 }
 
-function DeploymentRecordsList({ records, compact = false, onSelectDeployment, copyText }) {
+function DeploymentRecordsList({ records, compact = false, onSelectDeployment, onMintDeployment, copyText }) {
   if (!records.length) {
     return <EmptyInline icon={Timer} title="新工厂暂无发币记录" text="只有通过本页面发币工厂创建成功的新币，才会写入这里；创建完成后会自动显示部署钱包、Token、Mint池和开源入口。" />;
   }
@@ -2508,17 +2523,25 @@ function DeploymentRecordsList({ records, compact = false, onSelectDeployment, c
   return (
     <div className={`launch-records ${compact ? 'compact' : ''}`}>
       {records.map((item) => (
-        <DeploymentRecordCard item={item} key={deploymentKey(item)} compact={compact} onSelectDeployment={onSelectDeployment} copyText={copyText} />
+        <DeploymentRecordCard
+          item={item}
+          key={deploymentKey(item)}
+          compact={compact}
+          onSelectDeployment={onSelectDeployment}
+          onMintDeployment={onMintDeployment}
+          copyText={copyText}
+        />
       ))}
     </div>
   );
 }
 
-function DeploymentRecordCard({ item, compact = false, onSelectDeployment, copyText }) {
+function DeploymentRecordCard({ item, compact = false, onSelectDeployment, onMintDeployment, copyText }) {
   const hasPool = isAddress(item.pool) && !sameAddress(item.pool, ZERO_ADDRESS);
   const hasPair = isAddress(item.pair) && !sameAddress(item.pair, ZERO_ADDRESS);
   const modeLabel = deploymentModeLabel(item.templateId, item.pool);
   const marketAddress = hasPool ? item.pool : item.pair;
+  const whitelistActive = Boolean(item.whitelistEnabled && item.whitelistMintCount > 0);
 
   return (
     <article className={`launch-record ${compact ? 'compact' : ''}`}>
@@ -2543,6 +2566,12 @@ function DeploymentRecordCard({ item, compact = false, onSelectDeployment, copyT
         )}
       </div>
       <div className="record-actions">
+        {hasPool && (
+          <button className="primary" onClick={() => onMintDeployment?.(item, 1)} type="button">
+            <Coins size={14} />
+            Mint
+          </button>
+        )}
         <button className="secondary" onClick={() => onSelectDeployment(item)} type="button">
           <ListChecks size={14} />
           详情
@@ -2557,15 +2586,20 @@ function DeploymentRecordCard({ item, compact = false, onSelectDeployment, copyT
         )}
         {hasPool && (
           <a className="secondary" href={addressUrl(item.pool)} target="_blank" rel="noreferrer">
-            Mint池
+            查看Mint池
           </a>
         )}
       </div>
+      {whitelistActive && (
+        <p className="record-hint">
+          白名单窗口开启中：Mint 前请先在详情里添加当前钱包，或由项目方开启公开 Mint。
+        </p>
+      )}
     </article>
   );
 }
 
-function DeploymentsPage({ records, total, refreshFactoryRecords, onSelectDeployment, copyText, startLaunch }) {
+function DeploymentsPage({ records, total, refreshFactoryRecords, onSelectDeployment, onMintDeployment, copyText, startLaunch }) {
   return (
     <section className="section-panel deployments-page" id="deployments">
       <SectionHead
@@ -2597,7 +2631,7 @@ function DeploymentsPage({ records, total, refreshFactoryRecords, onSelectDeploy
         <MiniMetric label="工厂地址" value={shortAddress(FACTORY_CONTRACT)} />
         <MiniMetric label="创建费" value={`普通 ${LAUNCH_FEE_BNB} / 白名单 ${WHITELIST_LAUNCH_FEE_BNB}`} />
       </div>
-      <DeploymentRecordsList records={records} onSelectDeployment={onSelectDeployment} copyText={copyText} />
+      <DeploymentRecordsList records={records} onSelectDeployment={onSelectDeployment} onMintDeployment={onMintDeployment} copyText={copyText} />
     </section>
   );
 }
