@@ -15,13 +15,16 @@ The active contract stack powers the PEPE launchpad flow used by the frontend.
   - ERC20 launch token with configurable buy, sell, transfer, add-LP, remove-LP, and launch-protection taxes.
   - Supports fund, LP, dividend, and burn tax splits.
   - Supports reward-token dividend accounting.
+  - Locks normal trading before launch while allowing the Vault, Pancake Router, and launch Pair paths needed for mint liquidity and LP-removal refunds.
 
 - Mint Vault
   - Holds the full launch token supply.
   - Sells 50% of supply through BNB minting and reserves 50% for liquidity.
   - Adds PancakeSwap liquidity on each mint and locks LP to `0x...dEaD`.
   - Supports whitelist-enabled launches and owner-managed whitelist lists.
-  - Supports refunds after the fixed 24-hour window when the launch is not sold out.
+  - Records each wallet's paid BNB, received Token amount, and LP amount.
+  - Supports user refunds after the fixed 24-hour window when the launch is not sold out.
+  - Supports owner `emergencyRefund(account)` for real mint users and `forceFinalizeLaunch()` after expiry only when no refund has happened.
 
 The older Pepe template contracts are kept in `legacy-contracts/pepe/` for reference, but the production launch flow uses the current factory stack.
 
@@ -56,8 +59,8 @@ The deployment script writes a deployment record to `deployments/<network>-facto
 
 ## Current Mainnet Factory
 
-- Factory: `0xE2340E4B5242A3DbF6bdC453A2F234d6f132565b`
-- Token deployer: `0xf9E47B4f7567C96d15839af157B409544Cd4b4C0`
-- Vault deployer: `0x25744661F5863DcA3101D8F7dc19cf43e607Bfe7`
+- Factory: `0x988Cf7cb0b2AB68340769449850d8Bdf2a40DfB2`
+- Token deployer: `0xd70F031a934129301F8868588C756E19c63aA578`
+- Vault deployer: `0xf8D0F5Cb935b03d25B19A9EC9EE63488e6c19245`
 - Creation fee: `0.005 BNB`
 - Required token suffix: `0xeeee`

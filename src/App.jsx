@@ -32,7 +32,7 @@ import pepeArenaArt from './assets/pepe-arena.svg';
 const STORAGE_KEY = 'pepe-launch-arena-draft-factory';
 const LAUNCH_FEE_BNB = '0.005';
 const WHITELIST_LAUNCH_FEE_BNB = LAUNCH_FEE_BNB;
-const DEFAULT_FACTORY_CONTRACT = '0xE2340E4B5242A3DbF6bdC453A2F234d6f132565b';
+const DEFAULT_FACTORY_CONTRACT = '0x988Cf7cb0b2AB68340769449850d8Bdf2a40DfB2';
 const FACTORY_CONTRACT = import.meta.env.VITE_FACTORY_CONTRACT || DEFAULT_FACTORY_CONTRACT;
 const TOKEN_CONTRACT = import.meta.env.VITE_TOKEN_CONTRACT || '';
 const DEFAULT_REWARD_TOKEN = import.meta.env.VITE_REWARD_TOKEN_CONTRACT || '0x55d398326f99059fF775485246999027B3197955';
@@ -57,6 +57,8 @@ const FACTORY_WRITE_INTERFACE = new Interface([
 const VAULT_WRITE_INTERFACE = new Interface([
   'function mint(uint256 quantity) payable',
   'function claimRefund()',
+  'function forceFinalizeLaunch()',
+  'function emergencyRefund(address account)',
   'function setWhitelistAccounts(address[] accounts,bool listed)',
   'function setWhitelistEnabled(bool enabled)',
 ]);
@@ -1223,6 +1225,32 @@ function App() {
     });
   }
 
+  function openPoolForceFinalizeCheckout(deployment) {
+    if (!deployment || !isAddress(deployment.pool) || sameAddress(deployment.pool, ZERO_ADDRESS)) {
+      notify('这条记录没有 Mint 池，不能强制开盘。');
+      return;
+    }
+    setCheckout({
+      type: 'contractAction',
+      title: '强制开盘',
+      description: '这次会调用 Mint 池的强制开盘方法。只能在超过 24 小时、未打满、未退款且已有底池时由项目 Owner 执行；强开后不能再退款。',
+      amountBnb: '0',
+      valueWei: '0',
+      receiver: deployment.pool,
+      tokenAddress: deployment.token,
+      data: VAULT_WRITE_INTERFACE.encodeFunctionData('forceFinalizeLaunch'),
+      requiresOwner: true,
+      purpose: 'forceFinalizeLaunch',
+      actionLabel: '确认强制开盘',
+      summary: [
+        ['Mint池', shortAddress(deployment.pool)],
+        ['Token', shortAddress(deployment.token)],
+        ['强开条件', '超过24小时、未打满、未退款、有LP'],
+        ['风险提示', '强开后不能退款，LP和权限进入dead'],
+      ],
+    });
+  }
+
   function openPoolMintCheckout(deployment, quantity = 1) {
     if (!deployment || !isAddress(deployment.pool) || sameAddress(deployment.pool, ZERO_ADDRESS)) {
       notify('这条记录没有 Mint 池，不能发起 Mint。');
@@ -1593,6 +1621,7 @@ function App() {
           deployment={selectedDeployment}
           onMint={openPoolMintCheckout}
           onRefund={openPoolRefundCheckout}
+          onForceFinalize={openPoolForceFinalizeCheckout}
           onSetWhitelist={openPoolWhitelistCheckout}
           onSetWhitelistMode={openPoolWhitelistModeCheckout}
           copyText={copyText}
@@ -2825,7 +2854,7 @@ function FrogMark({ compact = false }) {
   );
 }
 
-function DeploymentDetailModal({ deployment, close, onMint, onRefund, onSetWhitelist, onSetWhitelistMode, copyText }) {
+function DeploymentDetailModal({ deployment, close, onMint, onRefund, onForceFinalize, onSetWhitelist, onSetWhitelistMode, copyText }) {
   const [mintQuantity, setMintQuantity] = useState('1');
   const [whitelistBatch, setWhitelistBatch] = useState('');
   const hasPool = isAddress(deployment.pool) && !sameAddress(deployment.pool, ZERO_ADDRESS);
@@ -2862,6 +2891,12 @@ function DeploymentDetailModal({ deployment, close, onMint, onRefund, onSetWhite
           <div className="whitelist-summary deployment-rule-summary">
             <ShieldCheck size={17} />
             新版 Mint 池支持每笔自动加池、LP 进 dead、24 小时失败后手动退款；已经进入 dead LP 的部分无法退款。
+          </div>
+        )}
+        {hasPool && (
+          <div className="whitelist-summary deployment-rule-summary warning">
+            <Zap size={17} />
+            过期未打满时项目方可以强制开盘；强开后交易开启、权限和 LP 进入 dead，并且不能再退款。
           </div>
         )}
         <div className="checkout-lines">
@@ -2973,6 +3008,12 @@ function DeploymentDetailModal({ deployment, close, onMint, onRefund, onSetWhite
             <button className="secondary" onClick={() => onRefund(deployment)} type="button">
               <CreditCard size={16} />
               手动退款
+            </button>
+          )}
+          {hasPool && (
+            <button className="secondary danger-action" onClick={() => onForceFinalize(deployment)} type="button">
+              <Zap size={16} />
+              强制开盘
             </button>
           )}
           <button className="primary" onClick={close} type="button">

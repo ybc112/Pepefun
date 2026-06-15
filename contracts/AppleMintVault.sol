@@ -79,6 +79,7 @@ contract AppleMintVault is Ownable, ReentrancyGuard {
     mapping(address account => uint256 minted) public whitelistMintedByWallet;
     mapping(address account => uint256 mintedByWallet) public mintedByWallet;
     mapping(address account => uint256 paid) public paidByWallet;
+    mapping(address account => uint256 tokens) public tokensByWallet;
     mapping(address account => uint256 liquidity) public liquidityLpByWallet;
 
     error InvalidQuantity();
@@ -94,6 +95,9 @@ contract AppleMintVault is Ownable, ReentrancyGuard {
     error DirectNativePayment();
     error NotLaunchToken();
     error WalletMintLimitExceeded();
+    error InsufficientTokenBalance();
+    error InsufficientTokenAllowance();
+    error ForceFinalizeUnavailable();
 
     event Minted(
         address indexed minter,
@@ -112,6 +116,8 @@ contract AppleMintVault is Ownable, ReentrancyGuard {
         uint256 liquidity
     );
     event Refunded(address indexed account, uint256 quantity, uint256 tokenAmount, uint256 paid);
+    event EmergencyRefunded(address indexed operator, address indexed account, uint256 quantity, uint256 tokenAmount, uint256 paid);
+    event ForceFinalized(address indexed operator, uint256 mintedCount, uint256 liquidityAmount);
     event WhitelistEnabledUpdated(bool enabled);
     event WhitelistListUpdated(address indexed account, bool listed);
 
@@ -215,6 +221,7 @@ contract AppleMintVault is Ownable, ReentrancyGuard {
         }
 
         paidByWallet[minter] += cost;
+        tokensByWallet[minter] += tokenAmount;
         IERC20(address(token)).safeTransfer(minter, tokenAmount);
         _addMintLiquidity(minter, quantity, cost);
         emit Minted(minter, quantity, whitelistQuantity, publicQuantity, tokenAmount, cost);
@@ -233,10 +240,45 @@ contract AppleMintVault is Ownable, ReentrancyGuard {
     }
 
     function canRefund(address account) external view returns (bool) {
-        return !finalized && block.timestamp >= refundDeadline && paidByWallet[account] > 0;
+        uint256 tokenAmount = tokensByWallet[account];
+        return !finalized && mintedCount < totalMints && block.timestamp >= refundDeadline
+            && paidByWallet[account] > 0 && tokenAmount > 0
+            && IERC20(address(token)).balanceOf(account) >= tokenAmount
+            && IERC20(address(token)).allowance(account, address(this)) >= tokenAmount;
     }
 
     function claimRefund() external nonReentrant {
+        _refundAccount(msg.sender, msg.sender, false);
+    }
+
+    function emergencyRefund(address account) external onlyOwner nonReentrant {
+        _refundAccount(account, account, true);
+    }
+
+    function forceFinalizeLaunch() external onlyOwner nonReentrant {
+        if (finalized) {
+            revert LaunchAlreadyFinalized();
+        }
+        if (block.timestamp < refundDeadline || mintedCount == totalMints) {
+            revert ForceFinalizeUnavailable();
+        }
+        if (mintedCount == 0 || refundedCount > 0 || liquidityPair == address(0)) {
+            revert ForceFinalizeUnavailable();
+        }
+
+        uint256 lockedLp = IERC20(liquidityPair).balanceOf(address(this));
+        if (lockedLp == 0) {
+            revert ForceFinalizeUnavailable();
+        }
+
+        _finalizeLaunch();
+        emit ForceFinalized(msg.sender, mintedCount, lockedLp);
+    }
+
+    function _refundAccount(address account, address recipient, bool emergency) private {
+        if (account == address(0) || recipient == address(0)) {
+            revert ZeroAddress();
+        }
         if (finalized) {
             revert LaunchAlreadyFinalized();
         }
@@ -244,22 +286,42 @@ contract AppleMintVault is Ownable, ReentrancyGuard {
             revert RefundUnavailable();
         }
 
-        uint256 paid = paidByWallet[msg.sender];
-        uint256 quantity = mintedByWallet[msg.sender];
+        uint256 paid = paidByWallet[account];
+        uint256 quantity = mintedByWallet[account];
+        uint256 tokenAmount = tokensByWallet[account];
         if (paid == 0 || quantity == 0) {
             revert NoRefund();
         }
+        if (IERC20(address(token)).balanceOf(account) < tokenAmount) {
+            revert InsufficientTokenBalance();
+        }
+        if (IERC20(address(token)).allowance(account, address(this)) < tokenAmount) {
+            revert InsufficientTokenAllowance();
+        }
 
-        uint256 tokenAmount = tokensPerMint * quantity;
-        uint256 whitelistQuantity = whitelistMintedByWallet[msg.sender];
+        IERC20(address(token)).safeTransferFrom(account, address(this), tokenAmount);
+        _removeWalletLiquidity(account);
+
+        uint256 refundAmount = paid < address(this).balance ? paid : address(this).balance;
+        if (refundAmount == 0) {
+            revert NoRefund();
+        }
+
+        (bool sent,) = payable(recipient).call{ value: refundAmount }("");
+        if (!sent) {
+            revert IncorrectPayment();
+        }
+
+        uint256 whitelistQuantity = whitelistMintedByWallet[account];
         if (whitelistQuantity > quantity) {
             whitelistQuantity = quantity;
         }
         uint256 publicQuantity = quantity - whitelistQuantity;
 
-        paidByWallet[msg.sender] = 0;
-        mintedByWallet[msg.sender] = 0;
-        whitelistMintedByWallet[msg.sender] = 0;
+        paidByWallet[account] = 0;
+        mintedByWallet[account] = 0;
+        whitelistMintedByWallet[account] = 0;
+        tokensByWallet[account] = 0;
         mintedCount -= quantity;
         if (whitelistQuantity > 0) {
             whitelistMintedCount -= whitelistQuantity;
@@ -271,22 +333,12 @@ contract AppleMintVault is Ownable, ReentrancyGuard {
         distributedTokenAmount = distributedTokenAmount >= tokenAmount
             ? distributedTokenAmount - tokenAmount
             : 0;
-
-        IERC20(address(token)).safeTransferFrom(msg.sender, address(this), tokenAmount);
-
-        _removeWalletLiquidity(msg.sender);
-        uint256 refundAmount = paid < address(this).balance ? paid : address(this).balance;
-        if (refundAmount == 0) {
-            revert NoRefund();
-        }
-
-        (bool sent,) = payable(msg.sender).call{ value: refundAmount }("");
-        if (!sent) {
-            revert IncorrectPayment();
-        }
         refundedPayment += refundAmount;
 
-        emit Refunded(msg.sender, quantity, tokenAmount, paid);
+        emit Refunded(account, quantity, tokenAmount, refundAmount);
+        if (emergency) {
+            emit EmergencyRefunded(msg.sender, account, quantity, tokenAmount, refundAmount);
+        }
     }
 
     function setWhitelistEnabled(bool nextWhitelistEnabled) external onlyOwner {

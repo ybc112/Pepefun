@@ -784,7 +784,7 @@ contract AppleToken is ERC20, Ownable {
 
         bool zeroValueOrMintBurn = from == address(0) || to == address(0) || value == 0;
         bool taxExemptTransfer = isTaxExempt[from] || isTaxExempt[to];
-        if (zeroValueOrMintBurn || taxExemptTransfer) {
+        if (zeroValueOrMintBurn) {
             super._update(from, to, value);
             _syncDividendShare(from);
             _syncDividendShare(to);
@@ -793,7 +793,23 @@ contract AppleToken is ERC20, Ownable {
         }
 
         if (!tradingEnabled) {
-            revert TradingLocked();
+            if (!taxExemptTransfer && !_isPreLaunchTransferAllowed(from, to)) {
+                revert TradingLocked();
+            }
+
+            super._update(from, to, value);
+            _syncDividendShare(from);
+            _syncDividendShare(to);
+            _processDividends();
+            return;
+        }
+
+        if (taxExemptTransfer) {
+            super._update(from, to, value);
+            _syncDividendShare(from);
+            _syncDividendShare(to);
+            _processDividends();
+            return;
         }
 
         bool fromPair = automatedMarketMakerPairs[from];
@@ -947,6 +963,28 @@ contract AppleToken is ERC20, Ownable {
     function _inLaunchProtection() private view returns (bool) {
         return startTradeBlock > 0 && launchProtectionBlocks > 0
             && block.number <= startTradeBlock + launchProtectionBlocks;
+    }
+
+    function _isPreLaunchTransferAllowed(address from, address to) private view returns (bool) {
+        address vault = launchVault;
+        if (vault != address(0) && (from == vault || to == vault)) {
+            return true;
+        }
+
+        address router = address(liquidityRouter);
+        if (router == address(0)) {
+            return false;
+        }
+
+        if (automatedMarketMakerPairs[from] && to == router) {
+            return true;
+        }
+
+        if (from == router && (to == vault || automatedMarketMakerPairs[to])) {
+            return true;
+        }
+
+        return false;
     }
 
     function _processAirdrops(

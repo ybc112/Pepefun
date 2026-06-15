@@ -2170,6 +2170,17 @@ legend {
   margin-top: 16px;
 }
 
+.deployment-rule-summary.warning {
+  border-color: rgba(255, 204, 102, 0.36);
+  color: #fff3cf;
+  background: rgba(255, 204, 102, 0.1);
+}
+
+.danger-action {
+  border-color: rgba(255, 204, 102, 0.42);
+  color: #fff3cf;
+}
+
 .toast {
   position: fixed;
   right: 20px;
