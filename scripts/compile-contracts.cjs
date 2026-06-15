@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 const solc = require('solc');
 
 const root = process.cwd();
@@ -11,8 +12,12 @@ const activeSources = [
   'contracts/AppleToken.sol',
 ];
 
+const resolvedSources = new Map();
+
 function readSource(file) {
-  return fs.readFileSync(path.join(root, file), 'utf8');
+  const content = fs.readFileSync(path.join(root, file), 'utf8');
+  resolvedSources.set(file, { content });
+  return content;
 }
 
 function findImport(importPath) {
@@ -23,14 +28,16 @@ function findImport(importPath) {
 
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
-      return { contents: fs.readFileSync(candidate, 'utf8') };
+      const contents = fs.readFileSync(candidate, 'utf8');
+      resolvedSources.set(importPath, { content: contents });
+      return { contents };
     }
   }
 
   return { error: `File not found: ${importPath}` };
 }
 
-function writeArtifact(sourceName, contractName, compiled) {
+function writeArtifact(sourceName, contractName, compiled, buildInfoPath) {
   const artifact = {
     _format: 'hh-sol-artifact-1',
     contractName,
@@ -47,6 +54,17 @@ function writeArtifact(sourceName, contractName, compiled) {
     path.join(outputDir, `${contractName}.json`),
     `${JSON.stringify(artifact, null, 2)}\n`,
   );
+  fs.writeFileSync(
+    path.join(outputDir, `${contractName}.dbg.json`),
+    `${JSON.stringify(
+      {
+        _format: 'hh-sol-dbg-1',
+        buildInfo: path.relative(outputDir, buildInfoPath),
+      },
+      null,
+      2,
+    )}\n`,
+  );
 }
 
 const input = {
@@ -62,7 +80,8 @@ const input = {
     },
     outputSelection: {
       '*': {
-        '*': ['abi', 'evm.bytecode', 'evm.deployedBytecode'],
+        '*': ['abi', 'evm.bytecode', 'evm.deployedBytecode', 'evm.methodIdentifiers', 'metadata'],
+        '': ['ast'],
       },
     },
   },
@@ -79,10 +98,27 @@ if (errors.length > 0) {
 }
 
 let count = 0;
+const buildInfoInput = {
+  ...input,
+  sources: Object.fromEntries([...resolvedSources.entries()].sort(([left], [right]) => left.localeCompare(right))),
+};
+const buildInfo = {
+  id: createHash('md5').update(JSON.stringify(buildInfoInput)).update(JSON.stringify(output)).digest('hex'),
+  _format: 'hh-sol-build-info-1',
+  solcVersion: solc.version().split('+')[0],
+  solcLongVersion: solc.version().replace(/\.Emscripten\.clang$/, ''),
+  input: buildInfoInput,
+  output,
+};
+const buildInfoDir = path.join(root, 'artifacts', 'build-info');
+fs.mkdirSync(buildInfoDir, { recursive: true });
+const buildInfoPath = path.join(buildInfoDir, `${buildInfo.id}.json`);
+fs.writeFileSync(buildInfoPath, `${JSON.stringify(buildInfo, null, 2)}\n`);
+
 for (const [sourceName, contracts] of Object.entries(output.contracts || {})) {
   if (!sourceName.startsWith('contracts/')) continue;
   for (const [contractName, compiled] of Object.entries(contracts)) {
-    writeArtifact(sourceName, contractName, compiled);
+    writeArtifact(sourceName, contractName, compiled, buildInfoPath);
     count += 1;
   }
 }

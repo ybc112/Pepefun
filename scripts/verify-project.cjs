@@ -2,8 +2,9 @@ require("dotenv").config();
 
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
+const https = require("node:https");
 const path = require("node:path");
-const { Contract, JsonRpcProvider, getAddress, isAddress } = require("ethers");
+const { AbiCoder, Contract, JsonRpcProvider, getAddress, isAddress } = require("ethers");
 
 const rootDir = process.cwd();
 const factoryArtifact = readJson("artifacts/contracts/AppleLaunchFactory.sol/AppleLaunchFactory.json");
@@ -112,12 +113,14 @@ async function main() {
 
   await verifyOne({
     address: tokenAddress,
+    constructorArgs: tokenConstructorArgs,
     constructorArgsPath: tokenArgsPath,
     contract: "contracts/AppleToken.sol:AppleToken",
     label: "Token",
   });
   await verifyOne({
     address: project.vault,
+    constructorArgs: vaultConstructorArgs,
     constructorArgsPath: vaultArgsPath,
     contract: "contracts/AppleMintVault.sol:AppleMintVault",
     label: "Vault",
@@ -129,19 +132,166 @@ function readTokenAddress() {
   return readAddress(process.env.PROJECT_TOKEN || cliValue || "", "PROJECT_TOKEN");
 }
 
-async function verifyOne({ address, constructorArgsPath, contract, label }) {
+async function verifyOne({ address, constructorArgs, constructorArgsPath, contract, label }) {
   console.log(`Verifying ${label}: ${address}`);
-  await runCommand("npx", [
-    "hardhat",
-    "verify",
-    "--network",
-    networkName,
-    "--contract",
-    contract,
-    "--constructor-args",
-    constructorArgsPath,
-    address,
-  ]);
+  try {
+    await runCommand("npx", [
+      "hardhat",
+      "verify",
+      "--network",
+      networkName,
+      "--contract",
+      contract,
+      "--constructor-args",
+      constructorArgsPath,
+      address,
+    ]);
+  } catch (error) {
+    if (!process.env.BSCSCAN_API_KEY && !process.env.ETHERSCAN_API_KEY) {
+      throw error;
+    }
+    console.warn(`Hardhat verify failed for ${label}; retrying with Etherscan v2 API.`);
+    console.warn(error instanceof Error ? error.message : String(error));
+    await verifyWithEtherscanV2({ address, constructorArgs, contract, label });
+  }
+}
+
+async function verifyWithEtherscanV2({ address, constructorArgs, contract, label }) {
+  const [sourceName, contractName] = contract.split(":");
+  const artifactPath = path.join(rootDir, "artifacts", sourceName, `${contractName}.json`);
+  const dbgPath = path.join(rootDir, "artifacts", sourceName, `${contractName}.dbg.json`);
+  const artifact = readJson(path.relative(rootDir, artifactPath));
+  const dbg = readJson(path.relative(rootDir, dbgPath));
+  const buildInfoPath = path.resolve(path.dirname(dbgPath), dbg.buildInfo);
+  const buildInfo = JSON.parse(fs.readFileSync(buildInfoPath, "utf8"));
+  const compilerVersion = String(buildInfo.solcLongVersion || "").startsWith("v")
+    ? buildInfo.solcLongVersion
+    : `v${buildInfo.solcLongVersion}`;
+  const encodedArgs = encodeConstructorArgs(artifact.abi, constructorArgs);
+  const apiUrl = process.env.ETHERSCAN_V2_API_URL || "https://api.etherscan.io/v2/api";
+  const apiKey = process.env.ETHERSCAN_API_KEY || process.env.BSCSCAN_API_KEY || "";
+  const verifyChainId = String(process.env.ETHERSCAN_CHAIN_ID || process.env.BSCSCAN_CHAIN_ID || chainId);
+
+  const submit = await requestJson({
+    method: "POST",
+    url: apiUrl,
+    query: { chainid: verifyChainId },
+    body: {
+      module: "contract",
+      action: "verifysourcecode",
+      apikey: apiKey,
+      contractaddress: address,
+      sourceCode: JSON.stringify(buildInfo.input),
+      codeformat: "solidity-standard-json-input",
+      contractname: contract,
+      compilerversion: compilerVersion,
+      optimizationUsed: "1",
+      runs: "1",
+      constructorArguements: encodedArgs,
+      licenseType: "3",
+    },
+  });
+
+  if (submit.status !== "1") {
+    const result = String(submit.result || "");
+    if (/already verified/i.test(result)) {
+      console.log(`${label} already verified.`);
+      return;
+    }
+    throw new Error(`Etherscan v2 submit failed for ${label}: ${submit.message || ""} ${result}`);
+  }
+
+  const guid = String(submit.result || "");
+  for (let attempt = 1; attempt <= 30; attempt += 1) {
+    await delay(6000);
+    const status = await requestJson({
+      method: "GET",
+      url: apiUrl,
+      query: {
+        chainid: verifyChainId,
+        module: "contract",
+        action: "checkverifystatus",
+        apikey: apiKey,
+        guid,
+      },
+    });
+    const result = String(status.result || "");
+    if (status.status === "1" || /pass - verified|already verified/i.test(result)) {
+      console.log(`${label} verified with Etherscan v2.`);
+      return;
+    }
+    if (/pending in queue|in progress/i.test(result)) {
+      continue;
+    }
+    throw new Error(`Etherscan v2 verify failed for ${label}: ${status.message || ""} ${result}`);
+  }
+
+  throw new Error(`Etherscan v2 verify timed out for ${label}.`);
+}
+
+function encodeConstructorArgs(abi, args) {
+  const constructor = abi.find((item) => item.type === "constructor");
+  const inputs = constructor?.inputs || [];
+  if (inputs.length === 0) {
+    return "";
+  }
+  return AbiCoder.defaultAbiCoder().encode(inputs.map(abiParamType), args).replace(/^0x/, "");
+}
+
+function abiParamType(input) {
+  if (String(input.type).startsWith("tuple")) {
+    const suffix = String(input.type).slice("tuple".length);
+    return `(${(input.components || []).map(abiParamType).join(",")})${suffix}`;
+  }
+  return input.type;
+}
+
+function requestJson({ method, url, query = {}, body = null }) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== "") {
+        target.searchParams.set(key, String(value));
+      }
+    }
+    const payload = body ? new URLSearchParams(body).toString() : "";
+    const request = https.request(
+      target,
+      {
+        method,
+        headers: payload
+          ? {
+              "content-type": "application/x-www-form-urlencoded",
+              "content-length": Buffer.byteLength(payload),
+            }
+          : {},
+      },
+      (response) => {
+        let raw = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          raw += chunk;
+        });
+        response.on("end", () => {
+          try {
+            resolve(JSON.parse(raw));
+          } catch {
+            reject(new Error(`Invalid explorer response: ${raw.slice(0, 240)}`));
+          }
+        });
+      },
+    );
+    request.on("error", reject);
+    request.setTimeout(120000, () => request.destroy(new Error("Explorer request timed out.")));
+    if (payload) {
+      request.write(payload);
+    }
+    request.end();
+  });
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function writeArgsFile(filePath, args) {

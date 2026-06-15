@@ -30,14 +30,14 @@ import pepeArenaArt from './assets/pepe-arena.svg';
 const STORAGE_KEY = 'pepe-launch-arena-draft-factory';
 const LAUNCH_FEE_BNB = '0.005';
 const WHITELIST_LAUNCH_FEE_BNB = LAUNCH_FEE_BNB;
-const DEFAULT_FACTORY_CONTRACT = '0xEd168e31FD49E09794E8d21c2DE92b7188Ed3eE9';
+const DEFAULT_FACTORY_CONTRACT = '0x8c0F9b5490d45c7fcBc29cDda2aA2843DBe2162e';
 const FACTORY_CONTRACT = import.meta.env.VITE_FACTORY_CONTRACT || DEFAULT_FACTORY_CONTRACT;
 const TOKEN_CONTRACT = import.meta.env.VITE_TOKEN_CONTRACT || '';
 const DEFAULT_REWARD_TOKEN = import.meta.env.VITE_REWARD_TOKEN_CONTRACT || '0x55d398326f99059fF775485246999027B3197955';
 const CONTRACT_SOURCE_URL = 'https://github.com/ybc112/Pepefun/tree/main/contracts';
-const DEFAULT_VANITY_SUFFIX = 'eeee';
+const DEFAULT_VANITY_SUFFIX = '5555';
 const VANITY_SUFFIX = normalizeHexSuffix(import.meta.env.VITE_VANITY_SUFFIX || DEFAULT_VANITY_SUFFIX) || DEFAULT_VANITY_SUFFIX;
-const DEFAULT_APP_BACKEND_URL = import.meta.env.DEV ? 'http://localhost:8787' : '';
+const DEFAULT_APP_BACKEND_URL = import.meta.env.DEV ? 'http://localhost:8787' : 'https://154.12.118.163.sslip.io';
 const APP_BACKEND_URL = normalizeBackendBaseUrl(import.meta.env.VITE_APP_BACKEND_URL || DEFAULT_APP_BACKEND_URL);
 const BSC_CHAIN_ID = 56;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
@@ -2174,7 +2174,7 @@ function LaunchWorkbench({
                 <input
                   value={form.vanitySuffix}
                   onChange={(event) => update('vanitySuffix', normalizeHexSuffix(event.target.value))}
-                  placeholder="例如 eeee"
+                  placeholder="例如 5555"
                 />
               </FormField>
               <FormField label="CREATE2 Salt">

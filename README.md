@@ -18,9 +18,9 @@ BSC 版公平 Meme 发射工具前端，使用 Vite + React 构建。页面继�
 
 当前核心合约源码与 `E:\dapp\kaola\contracts` 对齐，编译器使用 Solidity `0.8.28`。
 
-默认靓号尾号为 `eeee`。部署新工厂时，`scripts/deploy-factory.cjs` 会读取 `REQUIRED_TOKEN_SUFFIX` / `VITE_VANITY_SUFFIX`，未配置时默认使用 `eeee`。
+当前生产工厂靓号尾号为 `5555`。部署新工厂时，`scripts/deploy-factory.cjs` 会读取 `REQUIRED_TOKEN_SUFFIX` / `VITE_VANITY_SUFFIX`，未配置时默认使用 `5555`。
 
-注意：已部署工厂的尾号是不可变的。如果后端 `/health` 返回的 `requiredTokenSuffix` 不是 `eeee`，需要重新部署一个 `0xeeee` 工厂，并同步更新 `VITE_FACTORY_CONTRACT` 与 `APPLE_FACTORY_ADDRESS`。
+注意：已部署工厂的尾号是不可变的。如果后端 `/health` 返回的 `requiredTokenSuffix` 不是前端配置的尾号，需要重新部署对应尾号的工厂，并同步更新 `VITE_FACTORY_CONTRACT` 与 `APPLE_FACTORY_ADDRESS`。
 
 ```bash
 npm run hardhat:compile
@@ -31,7 +31,7 @@ npm run deploy:factory:bsc
 
 前端依赖本项目后端处理三类链上配套工作：
 
-- `/api/vanity-salt`：按 Factory 参数搜索 CREATE2 salt，默认匹配 `...eeee`
+- `/api/vanity-salt`：按 Factory 参数搜索 CREATE2 salt，默认匹配 `...5555`
 - `/api/assets` 与 `/api/assets/:filename`：保存 Logo 数据并返回可写入 `metadataUri` 的公开 URL
 - `/api/verify-project` 与 `/api/verify-status`：把新 Token 加入自动验源码队列，后端也会轮询 Factory 新项目并自动 backfill
 
@@ -64,25 +64,25 @@ npm run deploy:cloudflare
 ## 环境变量
 
 ```env
-VITE_FACTORY_CONTRACT=0xEd168e31FD49E09794E8d21c2DE92b7188Ed3eE9
-VITE_VANITY_SUFFIX=eeee
-VITE_APP_BACKEND_URL=http://localhost:8787
+VITE_FACTORY_CONTRACT=0x8c0F9b5490d45c7fcBc29cDda2aA2843DBe2162e
+VITE_VANITY_SUFFIX=5555
+VITE_APP_BACKEND_URL=https://154.12.118.163.sslip.io
 VITE_TOKEN_CONTRACT=
 
 PRIVATE_KEY=
 BSC_RPC_URL=https://bsc-rpc.publicnode.com
 BSCSCAN_API_KEY=
-FACTORY_FEE_RECEIVER=0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939
+FACTORY_FEE_RECEIVER=0xE3361a68e42Cea9aebA8D1148721D435ACB5c88b
 FACTORY_CREATION_FEE_BNB=0.005
 PANCAKE_ROUTER=0x10ED43C718714eb63d5aA57B78B54704E256024E
 DEFAULT_REWARD_TOKEN=0x55d398326f99059fF775485246999027B3197955
-REQUIRED_TOKEN_SUFFIX=eeee
+REQUIRED_TOKEN_SUFFIX=5555
 
 APPLE_BACKEND_PORT=8787
 APPLE_CHAIN_ID=56
-APPLE_FACTORY_ADDRESS=0xEd168e31FD49E09794E8d21c2DE92b7188Ed3eE9
+APPLE_FACTORY_ADDRESS=0x8c0F9b5490d45c7fcBc29cDda2aA2843DBe2162e
 APPLE_BACKEND_TOKEN=
-APPLE_PUBLIC_BASE_URL=http://localhost:8787
+APPLE_PUBLIC_BASE_URL=https://154.12.118.163.sslip.io
 APPLE_ASSET_DIR=work/assets
 APPLE_RATE_WINDOW_MS=60000
 APPLE_VANITY_RATE_LIMIT=8

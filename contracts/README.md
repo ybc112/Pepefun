@@ -36,10 +36,10 @@ Create `.env` from `.env.example` and set:
 PRIVATE_KEY=
 BSC_RPC_URL=https://bsc-rpc.publicnode.com
 BSCSCAN_API_KEY=
-FACTORY_FEE_RECEIVER=0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939
+FACTORY_FEE_RECEIVER=0xE3361a68e42Cea9aebA8D1148721D435ACB5c88b
 FACTORY_CREATION_FEE_BNB=0.005
 PANCAKE_ROUTER=0x10ED43C718714eb63d5aA57B78B54704E256024E
-REQUIRED_TOKEN_SUFFIX=aaaa
+REQUIRED_TOKEN_SUFFIX=5555
 VERIFY_AFTER_DEPLOY=false
 ```
 
@@ -59,8 +59,8 @@ The deployment script writes a deployment record to `deployments/<network>-Apple
 
 ## Current Kaola Mainnet Factory
 
-- Factory: `0xEd168e31FD49E09794E8d21c2DE92b7188Ed3eE9`
-- Token deployer: `0x25C696315043840C1aD282E30B8cEcf7780c0B95`
-- Vault deployer: `0xD9E652932d7c586b0Ba51F16102a66d62C8090f5`
+- Factory: `0x8c0F9b5490d45c7fcBc29cDda2aA2843DBe2162e`
+- Token deployer: `0xf9E47B4f7567C96d15839af157B409544Cd4b4C0`
+- Vault deployer: `0x25744661F5863DcA3101D8F7dc19cf43e607Bfe7`
 - Creation fee: `0.005 BNB`
-- Required token suffix: `0xaaaa`
+- Required token suffix: `0x5555`

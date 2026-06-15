@@ -21,7 +21,7 @@ function readAddress(name, fallback) {
 }
 
 function parseRequiredSuffix() {
-  const value = String(process.env.REQUIRED_TOKEN_SUFFIX || process.env.VITE_VANITY_SUFFIX || 'eeee')
+  const value = String(process.env.REQUIRED_TOKEN_SUFFIX || process.env.VITE_VANITY_SUFFIX || '5555')
     .trim()
     .replace(/^0x/i, '')
     .toLowerCase();
