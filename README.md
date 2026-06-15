@@ -10,6 +10,8 @@ BSC 版公平 Meme 发射工具前端，使用 Vite + React 构建。页面继�
 - Mint 收款按规则自动加 PancakeSwap LP
 - LP 接收地址固定为 `0x...dEaD`
 - 未打满且超过退款窗口后，用户可手动退款可退余额
+- 部署列表详情可对当前项目的 `AppleMintVault.mint(uint256)` 发起真实 Mint
+- 部署列表详情可对当前项目的 `setWhitelistAccounts` / `setWhitelistEnabled` 发起 Owner 管理交易
 - 支持分红模板、买卖税、高级税、四项税收分配、链上发射记录分页查询
 - 创建费默认 `0.005 BNB`
 - Token 地址尾号由工厂 `requiredTokenSuffix` 强制校验
@@ -62,7 +64,6 @@ npm run deploy:cloudflare
 ## 环境变量
 
 ```env
-VITE_PAYMENT_RECEIVER=
 VITE_FACTORY_CONTRACT=0xEd168e31FD49E09794E8d21c2DE92b7188Ed3eE9
 VITE_VANITY_SUFFIX=eeee
 VITE_APP_BACKEND_URL=http://localhost:8787
