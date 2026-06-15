@@ -32,6 +32,7 @@ const deployment = readFirstJson(
 const factoryArtifact = readJson("artifacts/contracts/AppleLaunchFactory.sol/AppleLaunchFactory.json");
 const tokenArtifact = readJson("artifacts/contracts/AppleToken.sol/AppleToken.json");
 const factorySource =
+  process.env.PEPE_FACTORY_ADDRESS ||
   process.env.APPLE_FACTORY_ADDRESS ||
   process.env.VITE_FACTORY_CONTRACT ||
   process.env.FACTORY_ADDRESS ||
@@ -40,27 +41,27 @@ const factorySource =
   "";
 
 if (!isAddress(factorySource)) {
-  throw new Error("Missing APPLE_FACTORY_ADDRESS or VITE_FACTORY_CONTRACT for Apple backend.");
+  throw new Error("Missing PEPE_FACTORY_ADDRESS or VITE_FACTORY_CONTRACT for PEPE backend.");
 }
 
-const chainId = Number(process.env.APPLE_CHAIN_ID || process.env.VITE_CHAIN_ID || 56);
-const rpcUrl = process.env.APPLE_RPC_URL || process.env.BSC_RPC_URL || "https://bsc.publicnode.com";
+const chainId = Number(process.env.PEPE_CHAIN_ID || process.env.APPLE_CHAIN_ID || process.env.VITE_CHAIN_ID || 56);
+const rpcUrl = process.env.PEPE_RPC_URL || process.env.APPLE_RPC_URL || process.env.BSC_RPC_URL || "https://bsc.publicnode.com";
 const factoryAddress = getAddress(factorySource);
 const provider = new JsonRpcProvider(rpcUrl, chainId);
 const factory = new Contract(factoryAddress, factoryArtifact.abi, provider);
-const port = Number(process.env.APPLE_BACKEND_PORT || 8787);
-const backendToken = process.env.APPLE_BACKEND_TOKEN || "";
+const port = Number(process.env.PEPE_BACKEND_PORT || process.env.APPLE_BACKEND_PORT || 8787);
+const backendToken = process.env.PEPE_BACKEND_TOKEN || process.env.APPLE_BACKEND_TOKEN || "";
 const autoVerify = process.env.AUTO_VERIFY_PROJECTS !== "false";
 const pollMs = Number(process.env.VERIFY_POLL_MS || 30000);
 const backfillCount = Number(process.env.VERIFY_BACKFILL_COUNT || 12);
 const verifyInitialDelayMs = Number(process.env.VERIFY_INITIAL_DELAY_MS || 20000);
 const verifyRetryDelayMs = Number(process.env.VERIFY_RETRY_DELAY_MS || 60000);
 const verifyRetryLimit = Number(process.env.VERIFY_RETRY_LIMIT || 5);
-const rateWindowMs = Number(process.env.APPLE_RATE_WINDOW_MS || 60000);
-const verifyRateLimit = Number(process.env.APPLE_VERIFY_RATE_LIMIT || 30);
-const vanityRateLimit = Number(process.env.APPLE_VANITY_RATE_LIMIT || 8);
-const assetRateLimit = Number(process.env.APPLE_ASSET_RATE_LIMIT || 20);
-const assetDir = path.resolve(process.env.APPLE_ASSET_DIR || path.join(rootDir, "work", "assets"));
+const rateWindowMs = Number(process.env.PEPE_RATE_WINDOW_MS || process.env.APPLE_RATE_WINDOW_MS || 60000);
+const verifyRateLimit = Number(process.env.PEPE_VERIFY_RATE_LIMIT || process.env.APPLE_VERIFY_RATE_LIMIT || 30);
+const vanityRateLimit = Number(process.env.PEPE_VANITY_RATE_LIMIT || process.env.APPLE_VANITY_RATE_LIMIT || 8);
+const assetRateLimit = Number(process.env.PEPE_ASSET_RATE_LIMIT || process.env.APPLE_ASSET_RATE_LIMIT || 20);
+const assetDir = path.resolve(process.env.PEPE_ASSET_DIR || process.env.APPLE_ASSET_DIR || path.join(rootDir, "work", "assets"));
 const jobs = new Map();
 const rateBuckets = new Map();
 let lastTokenCount = 0;
@@ -134,7 +135,7 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, () => {
-  console.log(`Apple backend listening on :${port}`);
+  console.log(`PEPE backend listening on :${port}`);
   console.log(`Factory: ${factoryAddress}`);
   console.log(`RPC: ${rpcUrl}`);
   if (autoVerify) {
@@ -234,8 +235,10 @@ function runVerify(token) {
         ...process.env,
         PROJECT_TOKEN: token,
         FACTORY_ADDRESS: factoryAddress,
+        PEPE_FACTORY_ADDRESS: factoryAddress,
         APPLE_FACTORY_ADDRESS: factoryAddress,
         BSC_RPC_URL: rpcUrl,
+        PEPE_RPC_URL: rpcUrl,
         APPLE_RPC_URL: rpcUrl,
       },
       shell: process.platform === "win32",
@@ -310,7 +313,7 @@ async function findVanitySalt(body) {
     factoryAddress,
   );
   if (!deployTx.data) {
-    throw new Error("AppleToken init code is empty.");
+    throw new Error("Token init code is empty.");
   }
 
   const initCodeHash = keccak256(deployTx.data);
@@ -444,7 +447,7 @@ async function sendAsset(response, pathname) {
 }
 
 function publicBaseUrl(request) {
-  const configured = String(process.env.APPLE_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
+  const configured = String(process.env.PEPE_PUBLIC_BASE_URL || process.env.APPLE_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
   if (configured) {
     return configured;
   }
@@ -577,7 +580,7 @@ function sendJson(response, statusCode, payload) {
 }
 
 function setCors(response) {
-  response.setHeader("access-control-allow-origin", process.env.APPLE_CORS_ORIGIN || "*");
+  response.setHeader("access-control-allow-origin", process.env.PEPE_CORS_ORIGIN || process.env.APPLE_CORS_ORIGIN || "*");
   response.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
   response.setHeader("access-control-allow-headers", "content-type,authorization");
 }

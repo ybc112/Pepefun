@@ -79,22 +79,7 @@ const navItems = [
   { id: 'deployments', label: '部署列表', icon: ListChecks },
 ];
 
-const launchModes = [
-  {
-    id: 'direct',
-    title: '标准发射',
-    kicker: '适合常规项目',
-    text: '设定总量、税率、Mint 份数和白名单，支付创建费后生成新币和 Mint 池。',
-    icon: Rocket,
-  },
-  {
-    id: 'mint',
-    title: '自由 Mint',
-    kicker: '擂台王牌模式',
-    text: '无需预分配，任何人按固定单价 Mint，每笔 BNB 自动组成底池并打入 dead。',
-    icon: Coins,
-  },
-];
+const ACTIVE_TEMPLATE_ID = 'fair-mint';
 
 const templates = [
   {
@@ -113,9 +98,9 @@ const templates = [
   },
   {
     id: 'fair-mint',
-    name: '公平启动模板',
-    tag: '无预挖',
-    text: '无团队预留、无老鼠仓，发射权交给 Mint 速度和共识。',
+    name: 'PEPE Mint 池',
+    tag: '真实部署',
+    text: '部署代币和 Mint 池，每笔 Mint 自动按规则进池，LP 最终进入 dead。',
     deployable: true,
   },
   {
@@ -162,13 +147,13 @@ const fairClaims = [
   ['参数公开上链', '部署钱包、Owner 和税控参数全部可查。'],
   ['没有底池被撤', 'LP 自动打入 dead 黑洞地址。'],
   ['没有合约留后门', '模板开源、参数上链、BscScan 可验证。'],
-  ['没有内幕预留', '自由 Mint 模式无预挖，全凭手速和共识。'],
+  ['没有内幕预留', '新币从 Mint 池启动，全凭手速和共识。'],
 ];
 
 const benefits = [
   '发币成本低，零代码也能完成参数配置',
   '底池强制转 dead 黑洞，永不可撤',
-  '合约模板公开验证，关键参数无法悄悄改',
+  '合约逻辑公开验证，关键参数无法悄悄改',
   '支持公平 Mint，杜绝预挖和老鼠仓',
   'BSC 主网钱包直连，MetaMask / OKX / TokenPocket / TrustWallet 可用',
   '合约地址、交易哈希、PancakeSwap 入口按发射结果输出',
@@ -176,7 +161,7 @@ const benefits = [
 
 const flowSteps = [
   ['01', '连接钱包', '连接真实 BSC 钱包，自动切换到 BNB Smart Chain。', Wallet],
-  ['02', '选择模式', '标准发射或自由 Mint，选择合约模板和税控参数。', SlidersHorizontal],
+  ['02', '配置 Mint', '选择白名单或公开 Mint，填写总量、价格、份数和税控参数。', SlidersHorizontal],
   ['03', '上传Logo', '上传 Pepe 风格 Logo，预览代币名、符号和擂台视觉。', Upload],
   ['04', '登上擂台', '确认支付并拉起钱包，等待链上交易回执。', Rocket],
 ];
@@ -264,13 +249,11 @@ function loadDraft() {
   try {
     const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || 'null');
     if (saved?.version === 5) {
-      const savedTemplateId = isDeployableTemplate(saved.form?.templateId) ? saved.form.templateId : defaultForm.templateId;
-      const savedMode = savedTemplateId === 'fair-mint' ? 'mint' : 'direct';
       return {
         ...defaultForm,
         ...saved.form,
-        mode: savedMode,
-        templateId: savedTemplateId,
+        mode: 'mint',
+        templateId: ACTIVE_TEMPLATE_ID,
         vanitySuffix: VANITY_SUFFIX,
         vanitySalt: '',
         deadLiquidity: true,
@@ -454,7 +437,7 @@ function getFairMintParams(form) {
 }
 
 function isWhitelistMintLaunch(form) {
-  return form.mode === 'mint' && isFairMintTemplate(form.templateId) && Boolean(form.whitelist);
+  return isFairMintTemplate(form.templateId) && Boolean(form.whitelist);
 }
 
 function getLaunchFeeBnb(form) {
@@ -867,10 +850,6 @@ function App() {
     () => templates.find((item) => item.id === form.templateId) || templates[0],
     [form.templateId],
   );
-  const selectedMode = useMemo(
-    () => launchModes.find((item) => item.id === form.mode) || launchModes[0],
-    [form.mode],
-  );
 
   const mintRaise = useMemo(
     () => numberValue(form.mintPrice) * numberValue(form.mintSlots),
@@ -948,9 +927,8 @@ function App() {
     if (field === 'mode') {
       setForm((current) => ({
         ...current,
-        mode: value,
-        templateId: value === 'mint' ? 'fair-mint' : current.templateId === 'fair-mint' ? 'standard' : current.templateId,
-        whitelist: value === 'mint' ? true : false,
+        mode: 'mint',
+        templateId: ACTIVE_TEMPLATE_ID,
       }));
       return;
     }
@@ -1048,10 +1026,9 @@ function App() {
   function startLaunch(next = {}) {
     setForm((current) => ({
       ...current,
-      ...(next.mode ? { mode: next.mode } : {}),
-      templateId:
-        next.templateId ||
-        (next.mode === 'mint' ? 'fair-mint' : next.mode === 'direct' && current.templateId === 'fair-mint' ? 'standard' : current.templateId),
+      mode: 'mint',
+      templateId: ACTIVE_TEMPLATE_ID,
+      ...(typeof next.whitelist === 'boolean' ? { whitelist: next.whitelist } : {}),
     }));
     setActivePage('launch');
     setLaunchStep(next.step || 'basic');
@@ -1345,7 +1322,7 @@ function App() {
     if (!form.symbol.trim()) return '请填写代币符号';
     if (numberValue(form.totalSupply) <= 0) return '代币总量必须大于 0';
     if (!isDeployableTemplate(form.templateId)) return '当前模板暂未开放链上发射，请选择已开放模板';
-    if (form.mode === 'mint' && !isFairMintTemplate(form.templateId)) return '自由 Mint 模式请使用公平启动模板';
+    if (!isFairMintTemplate(form.templateId)) return '当前页面只支持 PEPE Mint 池部署流程';
     if (normalizeHexSuffix(form.vanitySuffix).length !== String(form.vanitySuffix || '').replace(/^0x/i, '').replace(/\s+/g, '').length) {
       return '尾号只能填写 0-9 / a-f 的十六进制字符';
     }
@@ -1431,9 +1408,8 @@ function App() {
       summary: [
         ['工厂状态', '真实链上创建交易'],
         ['工厂合约', shortAddress(FACTORY_CONTRACT)],
-        ['发射模式', selectedMode.title],
-        ['合约模板', selectedTemplate.name],
-        ['模板ID', shortAddress(String(templateId))],
+        ['部署类型', form.whitelist ? '白名单 Mint' : '公开 Mint'],
+        ['合约逻辑', 'PEPE Mint 池'],
         ['链上动作', `创建${mintLaunchName}`],
         ['创建方法', 'Token + Mint 池，每笔 Mint 自动加池'],
         ['代币总量', formatNumber(form.totalSupply, 0)],
@@ -1465,9 +1441,9 @@ function App() {
 
   function submitLaunch(event) {
     event.preventDefault();
-    if (form.mode !== 'direct' && form.mode !== 'mint') {
-      notify('当前发射模式未接入 PEPE 发币工厂，不能创建真实链上项目。');
-      return;
+    if (form.mode !== 'mint' || !isFairMintTemplate(form.templateId)) {
+      update('mode', 'mint');
+      update('templateId', ACTIVE_TEMPLATE_ID);
     }
     openFactoryPlanCheckout();
   }
@@ -1497,7 +1473,7 @@ function App() {
         tokenName: form.tokenName.trim(),
         symbol: form.symbol.trim(),
         template: selectedTemplate.name,
-        mode: selectedMode.title,
+        mode: form.whitelist ? '白名单 Mint' : '公开 Mint',
         createdAt: new Date().toLocaleString('zh-CN', { hour12: false }),
       };
       setLastResult(result);
@@ -1546,8 +1522,6 @@ function App() {
             <LaunchWorkbench
               form={form}
               wallet={wallet}
-              selectedMode={selectedMode}
-              selectedTemplate={selectedTemplate}
               launchAmount={launchAmount}
               mintRaise={mintRaise}
               update={update}
@@ -1783,7 +1757,7 @@ function PrincipleSection() {
       <div className="rule-grid">
         <RuleCard icon={ShieldCheck} title="代码全公开" text="模板协议开源、预审计、BscScan 自动验证，让用户读得到、查得到、复核得到。" />
         <RuleCard icon={LockKeyhole} title="黑洞底池" text={`PancakeSwap 初始 LP 或 Mint 累积底池自动转入 ${shortAddress(DEAD_ADDRESS)}。`} />
-        <RuleCard icon={Users} title="无预挖公平" text="自由 Mint 模式无初始分配，全员同入口，杜绝老鼠仓和提前埋伏。" />
+        <RuleCard icon={Users} title="无预挖公平" text="Mint 池启动无初始分配，全员同入口，杜绝老鼠仓和提前埋伏。" />
       </div>
     </section>
   );
@@ -1877,13 +1851,13 @@ function ModeSection({ startLaunch }) {
     <section className="section-panel" id="modes">
       <SectionHead
         eyebrow="Launch Modes"
-        title="两种发射姿势：标准发射 / 自由 Mint"
+        title="一条真实部署流程"
         text="你可以用 1 分钟发起一场 Pepe 战役，也可以把 Mint 曲线、毕业目标和底池规则配置得更完整。"
       />
       <div className="section-actions">
         <button className="primary" onClick={() => startLaunch({ mode: 'direct', step: 'basic' })} type="button">
           <Rocket size={16} />
-          开始标准发射
+          开始部署新币
         </button>
         <button className="secondary" onClick={() => startLaunch({ mode: 'mint', step: 'basic' })} type="button">
           <Coins size={16} />
@@ -1929,8 +1903,6 @@ function ModeSection({ startLaunch }) {
 function LaunchWorkbench({
   form,
   wallet,
-  selectedMode,
-  selectedTemplate,
   launchAmount,
   mintRaise,
   update,
@@ -1960,7 +1932,7 @@ function LaunchWorkbench({
   }, [launchStep]);
 
   function chooseMintPlaybook(playbook) {
-    update('templateId', 'fair-mint');
+    update('templateId', ACTIVE_TEMPLATE_ID);
     update('whitelist', playbook.whitelist);
   }
 
@@ -1974,16 +1946,16 @@ function LaunchWorkbench({
     <section className="section-panel launch-panel" id="launch">
       <SectionHead
         eyebrow="Launch Console"
-        title="登上你的擂台"
-        text="核心参数集中填写，高级税率、靓号尾号和自动验源码保留在同一个真实发币流程里。"
+        title="部署新币"
+        text="一条真实发币流程：部署代币、创建 Mint 池、匹配 eeee 尾号，并把验源码任务送入后端队列。"
       />
       <form className="launch-workbench" onSubmit={submitLaunch}>
         <div className="launch-main quick-launch-main">
           <div className="quick-launch-hero">
             <div>
               <span className="eyebrow">Quick Launch</span>
-              <h3>一页发币</h3>
-              <p>填核心信息后直接确认，复杂参数默认折叠，仍然走真实 PEPE 发币工厂。</p>
+              <h3>核心参数</h3>
+              <p>先填代币和 Mint 参数，高级税率与社群资料折叠在下方，确认后拉起真实钱包交易。</p>
             </div>
             <div className="quick-launch-status">
               <span className="status-pill green">尾号 ...{normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)}</span>
@@ -1994,9 +1966,6 @@ function LaunchWorkbench({
 
           <fieldset className="wizard-fieldset quick-fieldset">
             <legend>基础信息</legend>
-            <FormField label="发射模式" wide>
-              <ModeToggle value={form.mode} onChange={(value) => update('mode', value)} />
-            </FormField>
             <FormField label="代币名称">
               <input value={form.tokenName} onChange={(event) => update('tokenName', event.target.value)} placeholder="Pepe Fighter" />
             </FormField>
@@ -2009,44 +1978,23 @@ function LaunchWorkbench({
             <FormField label="项目归属钱包">
               <input value={form.owner} onChange={(event) => update('owner', event.target.value)} placeholder={wallet.address || '0x...'} />
             </FormField>
-            {form.mode === 'mint' ? (
-              <FormField label="Mint玩法" wide>
-                <div className="template-picker mint-playbook-picker">
-                  {mintPlaybooks.map((playbook) => (
-                    <button
-                      className={selectedMintPlaybook === playbook.id ? 'active' : ''}
-                      key={playbook.id}
-                      onClick={() => chooseMintPlaybook(playbook)}
-                      type="button"
-                    >
-                      <span>{playbook.name}</span>
-                      <small>{playbook.tag}</small>
-                      <em>{playbook.text}</em>
-                    </button>
-                  ))}
-                </div>
-                <small className="field-hint">当前工厂真实支持：公平启动模板</small>
-              </FormField>
-            ) : (
-              <FormField label="合约模板" wide>
-                <div className="template-picker">
-                  {templates
-                    .filter((template) => template.deployable)
-                    .filter((template) => template.id !== 'fair-mint')
-                    .map((template) => (
-                      <button
-                        className={form.templateId === template.id ? 'active' : ''}
-                        key={template.id}
-                        onClick={() => update('templateId', template.id)}
-                        type="button"
-                      >
-                        <span>{template.name}</span>
-                        <small>{template.tag}</small>
-                      </button>
-                    ))}
-                </div>
-              </FormField>
-            )}
+            <FormField label="Mint类型" wide>
+              <div className="template-picker mint-playbook-picker">
+                {mintPlaybooks.map((playbook) => (
+                  <button
+                    className={selectedMintPlaybook === playbook.id ? 'active' : ''}
+                    key={playbook.id}
+                    onClick={() => chooseMintPlaybook(playbook)}
+                    type="button"
+                  >
+                    <span>{playbook.name}</span>
+                    <small>{playbook.tag}</small>
+                    <em>{playbook.text}</em>
+                  </button>
+                ))}
+              </div>
+              <small className="field-hint">只保留真实可用的部署链路，白名单与公开 Mint 会写入合约参数。</small>
+            </FormField>
             <FormField label="Pepe风格Logo" wide>
               <div className="logo-uploader">
                 <label>
@@ -2296,7 +2244,7 @@ function LaunchWorkbench({
               )}
               <button className="primary" disabled={busy} type="submit">
                 <Coins size={16} />
-                {form.mode === 'mint' ? (form.whitelist ? '部署白名单Mint池' : '部署公开Mint池') : '部署新币'}
+                {form.whitelist ? '部署白名单Mint池' : '部署公开Mint池'}
               </button>
             </div>
           </div>
@@ -2309,12 +2257,12 @@ function LaunchWorkbench({
               <div className="preview-logo">{form.logoData ? <img alt="Logo" src={form.logoData} /> : <FrogMark />}</div>
               <div>
                 <b>{form.tokenName || 'Pepe Fighter'}</b>
-                <span>{form.symbol || 'PEPE'} · {selectedMode.title}</span>
+                <span>{form.symbol || 'PEPE'} · {form.whitelist ? '白名单 Mint' : '公开 Mint'}</span>
               </div>
             </div>
             <div className="preview-lines">
-              <MiniMetric label="合约模板" value={selectedTemplate.name} />
-              <MiniMetric label="预计支付" value={form.mode === 'mint' ? `创建费 ${getLaunchFeeBnb(form)} BNB` : `${formatBnb(launchAmount)} BNB`} />
+              <MiniMetric label="部署类型" value={form.whitelist ? '白名单 Mint' : '公开 Mint'} />
+              <MiniMetric label="预计支付" value={`创建费 ${getLaunchFeeBnb(form)} BNB`} />
               <MiniMetric label="Mint募集上限" value={`${formatBnb(mintRaise)} BNB`} />
               <MiniMetric label="黑洞地址" value={shortAddress(DEAD_ADDRESS)} />
               <MiniMetric label="买/卖税" value={`${form.buyTax}% / ${form.sellTax}%`} />
@@ -2340,10 +2288,10 @@ function LaunchWorkbench({
                 连接真实钱包
               </button>
             )}
-            {form.whitelist && form.mode === 'mint' && <span className="status-pill green">白名单创建时写入新池</span>}
+            {form.whitelist && <span className="status-pill green">白名单创建时写入新池</span>}
             <button className="primary full submit-btn" type="submit">
               <Coins size={16} />
-              {form.mode === 'mint' ? (form.whitelist ? '部署白名单Mint池' : '部署公开Mint池') : '部署新币'}
+              {form.whitelist ? '部署白名单Mint池' : '部署公开Mint池'}
             </button>
           </Panel>
 
@@ -2618,13 +2566,11 @@ function RuleCard({ icon: Icon, title, text }) {
 
 function ModeToggle({ value, onChange }) {
   return (
-    <div className="mode-toggle" role="group" aria-label="选择发射模式">
-      {launchModes.map(({ id, title, icon: Icon }) => (
-        <button className={value === id ? 'active' : ''} key={id} onClick={() => onChange(id)} type="button">
-          <Icon size={15} />
-          {title}
-        </button>
-      ))}
+    <div className="mode-toggle" role="group" aria-label="部署流程">
+      <button className={value === 'mint' ? 'active' : ''} onClick={() => onChange('mint')} type="button">
+        <Coins size={15} />
+        PEPE Mint 池
+      </button>
     </div>
   );
 }

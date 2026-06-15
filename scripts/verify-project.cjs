@@ -24,6 +24,7 @@ const deployment = readFirstJson(
 );
 const factoryAddress = readAddress(
   process.env.FACTORY_ADDRESS ||
+    process.env.PEPE_FACTORY_ADDRESS ||
     process.env.APPLE_FACTORY_ADDRESS ||
     process.env.VITE_FACTORY_CONTRACT ||
     process.env.VITE_LAUNCHPAD_FACTORY_ADDRESS ||
@@ -34,10 +35,11 @@ const factoryAddress = readAddress(
 const tokenAddress = readTokenAddress();
 const rpcUrl =
   process.env.BSC_RPC_URL ||
+  process.env.PEPE_RPC_URL ||
   process.env.APPLE_RPC_URL ||
   (networkName === "bscTestnet" ? process.env.BSC_TESTNET_RPC_URL : "") ||
   "https://bsc.publicnode.com";
-const chainId = Number(process.env.APPLE_CHAIN_ID || process.env.VITE_CHAIN_ID || (networkName === "bscTestnet" ? 97 : 56));
+const chainId = Number(process.env.PEPE_CHAIN_ID || process.env.APPLE_CHAIN_ID || process.env.VITE_CHAIN_ID || (networkName === "bscTestnet" ? 97 : 56));
 const provider = new JsonRpcProvider(rpcUrl, chainId);
 const factory = new Contract(factoryAddress, factoryArtifact.abi, provider);
 

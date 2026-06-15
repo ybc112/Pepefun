@@ -1,31 +1,19 @@
-# PEPE 发射擂台 · BSC 版
+# PEPE 发射台 · BSC 版
 
-BSC 版公平 Meme 发射工具前端，使用 Vite + React 构建。页面继续保留 PEPE 发射风格，链上发射逻辑已切换为当前生产发射合约。
+BSC 版 PEPE 风格发币工具，使用 Vite + React 构建。当前主流程已经接入生产发射合约：部署新币、创建 Mint 池、写入白名单、匹配 `eeee` 靓号尾号，并把自动验源码任务送入后端队列。
 
-## 部署说明
-
-当前主流程调用 `AppleLaunchFactory.createLaunch`，创建 `AppleToken + AppleMintVault`：
+## 当前功能
 
 - 支持白名单 Mint 和公开 Mint
 - Mint 收款按规则自动加 PancakeSwap LP
 - LP 接收地址固定为 `0x...dEaD`
 - 未打满且超过退款窗口后，用户可手动退款可退余额
-- 部署列表详情可对当前项目的 `AppleMintVault.mint(uint256)` 发起真实 Mint
-- 部署列表详情可对当前项目的 `setWhitelistAccounts` / `setWhitelistEnabled` 发起 Owner 管理交易
-- 支持分红模板、买卖税、高级税、四项税收分配、链上发射记录分页查询
+- 部署列表详情可发起真实 Mint、写入白名单、切换白名单窗口
+- 支持买卖税、高级税、四项税收分配、链上发射记录分页查询
 - 创建费默认 `0.005 BNB`
-- Token 地址尾号由工厂 `requiredTokenSuffix` 强制校验
+- Token 地址尾号由工厂强制校验为 `eeee`
 
-当前核心合约源码与 `E:\dapp\kaola\contracts` 对齐，编译器使用 Solidity `0.8.28`。
-
-当前生产工厂靓号尾号为 `eeee`。部署新工厂时，`scripts/deploy-factory.cjs` 会读取 `REQUIRED_TOKEN_SUFFIX` / `VITE_VANITY_SUFFIX`，未配置时默认使用 `eeee`。
-
-注意：已部署工厂的尾号是不可变的。如果后端 `/health` 返回的 `requiredTokenSuffix` 不是前端配置的尾号，需要重新部署对应尾号的工厂，并同步更新 `VITE_FACTORY_CONTRACT` 与 `APPLE_FACTORY_ADDRESS`。
-
-```bash
-npm run hardhat:compile
-npm run deploy:factory:bsc
-```
+注意：已部署工厂的尾号是不可变的。如果后端 `/health` 返回的 `requiredTokenSuffix` 不是前端配置的尾号，需要重新部署对应尾号的工厂，并同步更新 `VITE_FACTORY_CONTRACT` 与 `PEPE_FACTORY_ADDRESS`。
 
 ## 后端：靓号、资产与自动验源码
 
@@ -44,7 +32,7 @@ npm run backend
 npm run dev
 ```
 
-生产环境部署时，需要把 `VITE_APP_BACKEND_URL` 配置为公开可访问的后端地址，并让后端的 `APPLE_FACTORY_ADDRESS` 指向同一个 `VITE_FACTORY_CONTRACT`。自动验源码需要配置 `BSCSCAN_API_KEY`，后端会调用 `npm run contracts:verify:project` 分别验证 `AppleToken` 和 `AppleMintVault`。
+生产环境部署时，需要把 `VITE_APP_BACKEND_URL` 配置为公开可访问的后端地址，并让后端的 `PEPE_FACTORY_ADDRESS` 指向同一个 `VITE_FACTORY_CONTRACT`。自动验源码需要配置 `BSCSCAN_API_KEY`，后端会调用 `npm run contracts:verify:project` 完成 Token 与 Mint 池源码验证。
 
 ## Cloudflare Pages
 
@@ -72,22 +60,22 @@ VITE_TOKEN_CONTRACT=
 PRIVATE_KEY=
 BSC_RPC_URL=https://bsc-rpc.publicnode.com
 BSCSCAN_API_KEY=
-FACTORY_FEE_RECEIVER=0xE3361a68e42Cea9aebA8D1148721D435ACB5c88b
+FACTORY_FEE_RECEIVER=0x8D944D45aa683BCaE0f15c8f1D479fB121aE616c
 FACTORY_CREATION_FEE_BNB=0.005
 PANCAKE_ROUTER=0x10ED43C718714eb63d5aA57B78B54704E256024E
 DEFAULT_REWARD_TOKEN=0x55d398326f99059fF775485246999027B3197955
 REQUIRED_TOKEN_SUFFIX=eeee
 
-APPLE_BACKEND_PORT=8787
-APPLE_CHAIN_ID=56
-APPLE_FACTORY_ADDRESS=0xE2340E4B5242A3DbF6bdC453A2F234d6f132565b
-APPLE_BACKEND_TOKEN=
-APPLE_PUBLIC_BASE_URL=https://154.12.118.163.sslip.io
-APPLE_ASSET_DIR=work/assets
-APPLE_RATE_WINDOW_MS=60000
-APPLE_VANITY_RATE_LIMIT=8
-APPLE_VERIFY_RATE_LIMIT=30
-APPLE_ASSET_RATE_LIMIT=20
+PEPE_BACKEND_PORT=8787
+PEPE_CHAIN_ID=56
+PEPE_FACTORY_ADDRESS=0xE2340E4B5242A3DbF6bdC453A2F234d6f132565b
+PEPE_BACKEND_TOKEN=
+PEPE_PUBLIC_BASE_URL=https://154.12.118.163.sslip.io
+PEPE_ASSET_DIR=work/assets
+PEPE_RATE_WINDOW_MS=60000
+PEPE_VANITY_RATE_LIMIT=8
+PEPE_VERIFY_RATE_LIMIT=30
+PEPE_ASSET_RATE_LIMIT=20
 AUTO_VERIFY_PROJECTS=true
 VERIFY_POLL_MS=30000
 VERIFY_BACKFILL_COUNT=12
