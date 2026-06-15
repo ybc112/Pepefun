@@ -256,7 +256,7 @@ function runVerify(token) {
 }
 
 async function findVanitySalt(body) {
-  const requestedSuffix = String(body.suffix || process.env.VITE_VANITY_SUFFIX || "5555")
+  const requestedSuffix = String(body.suffix || process.env.VITE_VANITY_SUFFIX || "eeee")
     .toLowerCase()
     .replace(/^0x/, "");
   const factoryRequiredSuffix = await readFactoryRequiredSuffix();

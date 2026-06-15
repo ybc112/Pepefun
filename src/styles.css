@@ -625,10 +625,6 @@ textarea {
   background: rgba(0, 0, 0, 0.28);
 }
 
-.uppercase-input {
-  text-transform: uppercase;
-}
-
 textarea {
   min-height: 94px;
   resize: vertical;
@@ -2709,4 +2705,106 @@ legend {
     border-top: 1px solid rgba(218, 255, 138, 0.14);
     background: linear-gradient(180deg, rgba(9, 16, 6, 0.86), rgba(5, 8, 3, 0.99));
   }
+}
+
+/* Cleaner launch-console skin. */
+.bg-layer {
+  background: #070a07;
+}
+
+.bg-layer::before,
+.bg-layer::after {
+  display: none;
+}
+
+.topbar {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background: rgba(7, 10, 7, 0.96);
+  backdrop-filter: blur(10px);
+}
+
+.brand-mark {
+  border-color: rgba(215, 255, 86, 0.28);
+  background: #10170e;
+  box-shadow: none;
+}
+
+.nav {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.nav button.active,
+.primary,
+.wallet-btn {
+  color: #081006;
+  background: #d7ff56;
+  box-shadow: none;
+}
+
+.secondary,
+.template-picker button,
+.segmented-control button,
+.address-copy button {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: none;
+}
+
+.nav button:hover,
+.secondary:hover,
+.template-picker button:hover,
+.segmented-control button:hover,
+.address-copy button:hover {
+  border-color: rgba(215, 255, 86, 0.24);
+  background: rgba(215, 255, 86, 0.075);
+}
+
+.shell {
+  width: min(1280px, calc(100% - 32px));
+  margin-top: 18px;
+}
+
+.page-stage {
+  min-height: auto;
+  animation: none;
+}
+
+.page-pager,
+.quick-launch-hero,
+.arena-visual,
+.metric-strip {
+  display: none;
+}
+
+.section-panel,
+.panel,
+.wizard-fieldset,
+.quick-submit-card,
+.launch-record,
+.modal,
+.modal-card {
+  box-shadow: none;
+}
+
+.section-panel,
+.wizard-fieldset,
+.quick-submit-card,
+.launch-record {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(12, 16, 12, 0.92);
+}
+
+.vanity-lock-card {
+  border-color: rgba(215, 255, 86, 0.22);
+  background: rgba(215, 255, 86, 0.06);
+  box-shadow: none;
+}
+
+.template-picker button.active,
+.mode-toggle button.active,
+.status-pill.green {
+  border-color: rgba(215, 255, 86, 0.24);
+  background: rgba(215, 255, 86, 0.1);
+  box-shadow: none;
 }

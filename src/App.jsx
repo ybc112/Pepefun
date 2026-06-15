@@ -30,12 +30,12 @@ import pepeArenaArt from './assets/pepe-arena.svg';
 const STORAGE_KEY = 'pepe-launch-arena-draft-factory';
 const LAUNCH_FEE_BNB = '0.005';
 const WHITELIST_LAUNCH_FEE_BNB = LAUNCH_FEE_BNB;
-const DEFAULT_FACTORY_CONTRACT = '0x8c0F9b5490d45c7fcBc29cDda2aA2843DBe2162e';
+const DEFAULT_FACTORY_CONTRACT = '0xE2340E4B5242A3DbF6bdC453A2F234d6f132565b';
 const FACTORY_CONTRACT = import.meta.env.VITE_FACTORY_CONTRACT || DEFAULT_FACTORY_CONTRACT;
 const TOKEN_CONTRACT = import.meta.env.VITE_TOKEN_CONTRACT || '';
 const DEFAULT_REWARD_TOKEN = import.meta.env.VITE_REWARD_TOKEN_CONTRACT || '0x55d398326f99059fF775485246999027B3197955';
 const CONTRACT_SOURCE_URL = 'https://github.com/ybc112/Pepefun/tree/main/contracts';
-const DEFAULT_VANITY_SUFFIX = '5555';
+const DEFAULT_VANITY_SUFFIX = 'eeee';
 const VANITY_SUFFIX = normalizeHexSuffix(import.meta.env.VITE_VANITY_SUFFIX || DEFAULT_VANITY_SUFFIX) || DEFAULT_VANITY_SUFFIX;
 const DEFAULT_APP_BACKEND_URL = import.meta.env.DEV ? 'http://localhost:8787' : 'https://154.12.118.163.sslip.io';
 const APP_BACKEND_URL = normalizeBackendBaseUrl(import.meta.env.VITE_APP_BACKEND_URL || DEFAULT_APP_BACKEND_URL);
@@ -75,13 +75,8 @@ const BSC_CHAIN = {
 };
 
 const navItems = [
-  { id: 'arena', label: '首页', icon: LayoutDashboard },
-  { id: 'rules', label: '公平规则', icon: ShieldCheck },
-  { id: 'templates', label: '模板协议', icon: FileCheck2 },
-  { id: 'modes', label: '发射姿势', icon: Rocket },
   { id: 'launch', label: '部署新币', icon: Upload },
   { id: 'deployments', label: '部署列表', icon: ListChecks },
-  { id: 'manifesto', label: '擂主宣言', icon: BadgeCheck },
 ];
 
 const launchModes = [
@@ -382,8 +377,7 @@ function formatBnb(value) {
 
 function cleanSymbol(value) {
   return String(value || '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '')
     .slice(0, 12);
 }
 
@@ -846,9 +840,9 @@ async function getFactoryCreationFeeWei(formLike = null) {
 }
 
 function pageFromHash() {
-  if (typeof window === 'undefined') return 'arena';
+  if (typeof window === 'undefined') return 'launch';
   const id = window.location.hash.replace('#', '');
-  return navItems.some((item) => item.id === id) ? id : 'arena';
+  return navItems.some((item) => item.id === id) ? id : 'launch';
 }
 
 function pageIndex(page) {
@@ -1548,22 +1542,6 @@ function App() {
       />
       <main className="shell page-shell">
         <div className="page-stage">
-          {activePage === 'arena' && (
-            <HomePage
-              form={form}
-              wallet={wallet}
-              selectedMode={selectedMode}
-              selectedTemplate={selectedTemplate}
-              update={update}
-              navigate={navigateToPage}
-              connectWallet={connectWallet}
-            />
-          )}
-          {activePage === 'rules' && <RulesPage />}
-          {activePage === 'templates' && (
-            <TemplateSection selectedTemplate={selectedTemplate} selectTemplate={(id) => update('templateId', id)} startLaunch={startLaunch} />
-          )}
-          {activePage === 'modes' && <ModeSection startLaunch={startLaunch} />}
           {activePage === 'launch' && (
             <LaunchWorkbench
               form={form}
@@ -1599,9 +1577,7 @@ function App() {
               startLaunch={startLaunch}
             />
           )}
-          {activePage === 'manifesto' && <ManifestoSection />}
         </div>
-        <PagePager activePage={activePage} navigate={navigateToPage} />
       </main>
       {checkout && (
         <CheckoutModal
@@ -1631,7 +1607,7 @@ function App() {
 function Topbar({ wallet, activePage, navigate, navigateToMint, connectWallet }) {
   return (
     <header className="topbar">
-      <button className="brand" onClick={() => navigate('arena')} type="button">
+      <button className="brand" onClick={() => navigate('launch')} type="button">
         <span className="brand-mark">
           <FrogMark compact />
         </span>
@@ -1723,7 +1699,7 @@ function Hero({ form, wallet, selectedMode, selectedTemplate, update, navigate, 
             </label>
             <label>
               <span>符号</span>
-              <input className="uppercase-input" value={form.symbol} onChange={(event) => update('symbol', cleanSymbol(event.target.value))} placeholder="PEPE" />
+              <input value={form.symbol} onChange={(event) => update('symbol', cleanSymbol(event.target.value))} placeholder="PEPE" />
             </label>
           </div>
           <div className="quick-receipt">
@@ -2025,7 +2001,7 @@ function LaunchWorkbench({
               <input value={form.tokenName} onChange={(event) => update('tokenName', event.target.value)} placeholder="Pepe Fighter" />
             </FormField>
             <FormField label="代币符号">
-              <input className="uppercase-input" value={form.symbol} onChange={(event) => update('symbol', cleanSymbol(event.target.value))} placeholder="PEPE" />
+              <input value={form.symbol} onChange={(event) => update('symbol', cleanSymbol(event.target.value))} placeholder="PEPE" />
             </FormField>
             <FormField label="代币总量">
               <input value={form.totalSupply} onChange={(event) => update('totalSupply', event.target.value)} inputMode="decimal" />
@@ -2371,70 +2347,6 @@ function LaunchWorkbench({
             </button>
           </Panel>
 
-          <FactoryBlueprint
-            form={form}
-            wallet={wallet}
-            selectedTemplate={selectedTemplate}
-            update={update}
-            setLaunchStep={setLaunchStep}
-            copyText={copyText}
-          />
-
-          <Panel title={form.mode === 'mint' ? (form.whitelist ? '白名单Mint池' : '公开Mint池') : '发币工厂参数'} icon={Coins}>
-            {form.mode === 'mint' ? (
-              <>
-                <div className="chain-status-row">
-                  <span className="status-pill green">创建新池</span>
-                  <span className="status-pill green">每笔自动加池</span>
-                  <span className="status-pill green">LP进dead</span>
-                  <span className="status-pill cyan">24小时退款窗口</span>
-                </div>
-                <div className="preview-lines chain-lines">
-                  <MiniMetric label="模板" value={selectedTemplate.name} />
-                  <MiniMetric label="Mint单价" value={`${formatBnbFromWei(mintParams.price, 8)} BNB`} />
-                  <MiniMetric label="每份获得" value={`${formatUnits(mintParams.amountPerMint, 18, 4)} ${form.symbol || 'PEPE'}`} />
-                  <MiniMetric label="Mint总份数" value={`${mintParams.mintLimit.toString()} 份`} />
-                  {form.whitelist && <MiniMetric label="白名单总份数" value={`${mintParams.whiteLimit.toString()} 份`} />}
-                  <MiniMetric label="每钱包上限" value={`${mintParams.accMintLimit.toString()} 份`} />
-                  <MiniMetric label="单次上限" value={`${mintParams.accEachLimit.toString()} 份`} />
-                  <MiniMetric label="白名单地址" value={form.whitelist ? `${whitelistInfo.valid.length} 个` : '不启用'} />
-                  <MiniMetric label="BNB进池比例" value="100% / 每笔" />
-                  <MiniMetric label="代币配池比例" value="50% / 总量" />
-                  <MiniMetric label="配池代币储备" value={`${formatUnits(mintParams.liquidityTokenAmount, 18, 4)} ${form.symbol || 'PEPE'}`} />
-                  <MiniMetric label="退款窗口" value="24 小时" />
-                  <MiniMetric label="Mint池Owner" value={form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '创建钱包'} />
-                  <MiniMetric label="Token权限" value="项目方 Owner / 打满后 LP 黑洞" />
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="chain-status-row">
-                  <span className="status-pill green">Token合约</span>
-                  <span className="status-pill green">Mint池</span>
-                  <span className="status-pill green">LP进dead</span>
-                  <span className="status-pill cyan">24小时退款窗口</span>
-                </div>
-                <div className="preview-lines chain-lines">
-                  <MiniMetric label="模板" value={selectedTemplate.name} />
-                  <MiniMetric label="创建费" value={`${getLaunchFeeBnb(form)} BNB`} />
-                  <MiniMetric label="Mint单价" value={`${formatBnbFromWei(mintParams.price, 8)} BNB`} />
-                  <MiniMetric label="每份获得" value={`${formatUnits(mintParams.amountPerMint, 18, 4)} ${form.symbol || 'PEPE'}`} />
-                  <MiniMetric label="Mint总份数" value={`${mintParams.mintLimit.toString()} 份`} />
-                  <MiniMetric label="配池代币储备" value={`${formatUnits(mintParams.liquidityTokenAmount, 18, 4)} ${form.symbol || 'PEPE'}`} />
-                  <MiniMetric label="买/卖税" value={`${form.buyTax}% / ${form.sellTax}%`} />
-                  <MiniMetric label="高级税" value={getAdvancedTaxSummary(form)} />
-                  <MiniMetric label="税收分配" value={getTaxSplitSummary(form)} />
-                  {isDividendTemplate(form.templateId) && <MiniMetric label="分红平台币" value={shortAddress(TOKEN_CONTRACT)} />}
-                  {isDividendTemplate(form.templateId) && <MiniMetric label="换币触发" value={form.rewardSwapThreshold ? `${form.rewardSwapThreshold} ${form.symbol || 'TOKEN'}` : '总量0.01%'} />}
-                  <MiniMetric label="LP接收" value={shortAddress(DEAD_ADDRESS)} />
-                  <MiniMetric label="尾号定制" value={`...${normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)}`} />
-                  <MiniMetric label="Token权限" value="项目方 Owner / 打满后 LP 黑洞" />
-                  <MiniMetric label="接收钱包" value={form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '创建钱包'} />
-                </div>
-              </>
-            )}
-          </Panel>
-
           <Panel title="链上输出" icon={CircleDollarSign}>
             {lastResult ? (
               <div className="result-box">
@@ -2629,83 +2541,6 @@ function DeploymentsPage({ records, total, refreshFactoryRecords, onSelectDeploy
       </div>
       <DeploymentRecordsList records={records} onSelectDeployment={onSelectDeployment} copyText={copyText} />
     </section>
-  );
-}
-
-function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchStep, copyText }) {
-  const factoryReady = isAddress(FACTORY_CONTRACT);
-  const creator = form.owner && isAddress(form.owner) ? form.owner : wallet.address;
-  const mintParams = getFairMintParams(form);
-  const dividendMode = isDividendTemplate(form.templateId);
-  const sourceUrl = CONTRACT_SOURCE_URL;
-
-  return (
-    <Panel title="自助发币工厂" icon={Settings}>
-      <div className="factory-status">
-        <span className={`status-pill ${factoryReady ? 'green' : 'cyan'}`}>{factoryReady ? '工厂已部署' : '工厂准备中'}</span>
-        <span className="status-pill green">PEPE工厂</span>
-        <span className="status-pill green">模板分页</span>
-        <span className="status-pill green">CREATE2尾号</span>
-        <span className="status-pill green">强制LP进dead</span>
-        <span className="status-pill green">24h退款</span>
-      </div>
-      <div className="factory-flow">
-        {factoryFlow.map(([step, title, text]) => (
-          <span key={step}>
-            <em>{step}</em>
-            <b>{title}</b>
-            <small>{text}</small>
-          </span>
-        ))}
-      </div>
-      <div className="preview-lines factory-lines">
-        <MiniMetric label="新币模式" value={form.whitelist ? '白名单Mint池' : '公开Mint池'} />
-        <MiniMetric label="模板协议" value={dividendMode ? '持币分红平台币' : selectedTemplate.name} />
-        <MiniMetric label="模板ID" value={shortAddress(String(getTemplateId(form.templateId)))} />
-        {dividendMode && <MiniMetric label="分红币" value={shortAddress(TOKEN_CONTRACT)} />}
-        {dividendMode && <MiniMetric label="换币触发" value={form.rewardSwapThreshold ? `${form.rewardSwapThreshold} ${cleanSymbol(form.symbol) || 'TOKEN'}` : '总量0.01%'} />}
-        <MiniMetric label="创建者" value={creator ? shortAddress(creator) : '连接后填入'} />
-        <MiniMetric label="创建费" value={`${getLaunchFeeBnb(form)} BNB`} />
-        <MiniMetric label="Mint单价" value={`${formatBnbFromWei(mintParams.price, 8)} BNB`} />
-        {form.whitelist && <MiniMetric label="白名单份数" value={`${mintParams.whiteLimit.toString()} 份`} />}
-        <MiniMetric label="每笔加池" value="BNB 100% / 币 50%" />
-        <MiniMetric label="退款窗口" value="24 小时" />
-        <MiniMetric label="配池代币储备" value={`${formatUnits(mintParams.liquidityTokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`} />
-        <MiniMetric label="LP接收" value={shortAddress(DEAD_ADDRESS)} />
-        <MiniMetric label="尾号" value={`...${normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)}`} />
-        <MiniMetric label="权限" value="项目方 Owner / 打满后 LP 黑洞" />
-      </div>
-      <div className="factory-actions">
-        <button
-          className="secondary"
-          onClick={() => {
-            update('mode', 'direct');
-            setLaunchStep('basic');
-          }}
-          type="button"
-        >
-          <SlidersHorizontal size={15} />
-          配置新币
-        </button>
-        <a className="secondary" href={sourceUrl} target="_blank" rel="noreferrer">
-          <ExternalLink size={15} />
-          工厂源码
-        </a>
-        {factoryReady && (
-          <a className="secondary" href={addressUrl(FACTORY_CONTRACT)} target="_blank" rel="noreferrer">
-            <ExternalLink size={15} />
-            工厂地址
-          </a>
-        )}
-        {factoryReady && (
-          <button className="secondary" onClick={() => copyText?.(FACTORY_CONTRACT, '工厂合约')} type="button">
-            <Copy size={15} />
-            复制工厂
-          </button>
-        )}
-      </div>
-      <p className="factory-note">发射工厂已接入真实链上合约：创建新币与 Mint 池，支持白名单 Mint、每笔 Mint 自动加池、24 小时未满退款，以及全局链上分页查询。</p>
-    </Panel>
   );
 }
 

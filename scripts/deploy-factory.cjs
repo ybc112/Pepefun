@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const hre = require('hardhat');
 
-const DEFAULT_FEE_RECIPIENT = '0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939';
+const DEFAULT_FEE_RECIPIENT = '0x8D944D45aa683BCaE0f15c8f1D479fB121aE616c';
 const DEFAULT_PANCAKE_ROUTER = '0x10ED43C718714eb63d5aA57B78B54704E256024E';
 
 function privateKeyRequired() {
@@ -21,7 +21,7 @@ function readAddress(name, fallback) {
 }
 
 function parseRequiredSuffix() {
-  const value = String(process.env.REQUIRED_TOKEN_SUFFIX || process.env.VITE_VANITY_SUFFIX || '5555')
+  const value = String(process.env.REQUIRED_TOKEN_SUFFIX || process.env.VITE_VANITY_SUFFIX || 'eeee')
     .trim()
     .replace(/^0x/i, '')
     .toLowerCase();

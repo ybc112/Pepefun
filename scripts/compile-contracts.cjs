@@ -123,4 +123,4 @@ for (const [sourceName, contracts] of Object.entries(output.contracts || {})) {
   }
 }
 
-console.log(`Compiled ${count} Apple/Kaola contract artifacts with solc ${solc.version()}.`);
+console.log(`Compiled ${count} launch contract artifacts with solc ${solc.version()}.`);

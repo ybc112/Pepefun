@@ -1,8 +1,8 @@
 # PEPE 发射擂台 · BSC 版
 
-BSC 版公平 Meme 发射工具前端，使用 Vite + React 构建。页面继续保留 PEPE 青蛙擂台视觉，链上发射逻辑已切换为 Apple/Kaola 发射合约。
+BSC 版公平 Meme 发射工具前端，使用 Vite + React 构建。页面继续保留 PEPE 发射风格，链上发射逻辑已切换为当前生产发射合约。
 
-## 自助发币工厂
+## 部署说明
 
 当前主流程调用 `AppleLaunchFactory.createLaunch`，创建 `AppleToken + AppleMintVault`：
 
@@ -18,7 +18,7 @@ BSC 版公平 Meme 发射工具前端，使用 Vite + React 构建。页面继�
 
 当前核心合约源码与 `E:\dapp\kaola\contracts` 对齐，编译器使用 Solidity `0.8.28`。
 
-当前生产工厂靓号尾号为 `5555`。部署新工厂时，`scripts/deploy-factory.cjs` 会读取 `REQUIRED_TOKEN_SUFFIX` / `VITE_VANITY_SUFFIX`，未配置时默认使用 `5555`。
+当前生产工厂靓号尾号为 `eeee`。部署新工厂时，`scripts/deploy-factory.cjs` 会读取 `REQUIRED_TOKEN_SUFFIX` / `VITE_VANITY_SUFFIX`，未配置时默认使用 `eeee`。
 
 注意：已部署工厂的尾号是不可变的。如果后端 `/health` 返回的 `requiredTokenSuffix` 不是前端配置的尾号，需要重新部署对应尾号的工厂，并同步更新 `VITE_FACTORY_CONTRACT` 与 `APPLE_FACTORY_ADDRESS`。
 
@@ -31,7 +31,7 @@ npm run deploy:factory:bsc
 
 前端依赖本项目后端处理三类链上配套工作：
 
-- `/api/vanity-salt`：按 Factory 参数搜索 CREATE2 salt，默认匹配 `...5555`
+- `/api/vanity-salt`：按 Factory 参数搜索 CREATE2 salt，默认匹配 `...eeee`
 - `/api/assets` 与 `/api/assets/:filename`：保存 Logo 数据并返回可写入 `metadataUri` 的公开 URL
 - `/api/verify-project` 与 `/api/verify-status`：把新 Token 加入自动验源码队列，后端也会轮询 Factory 新项目并自动 backfill
 
@@ -64,8 +64,8 @@ npm run deploy:cloudflare
 ## 环境变量
 
 ```env
-VITE_FACTORY_CONTRACT=0x8c0F9b5490d45c7fcBc29cDda2aA2843DBe2162e
-VITE_VANITY_SUFFIX=5555
+VITE_FACTORY_CONTRACT=0xE2340E4B5242A3DbF6bdC453A2F234d6f132565b
+VITE_VANITY_SUFFIX=eeee
 VITE_APP_BACKEND_URL=https://154.12.118.163.sslip.io
 VITE_TOKEN_CONTRACT=
 
@@ -76,11 +76,11 @@ FACTORY_FEE_RECEIVER=0xE3361a68e42Cea9aebA8D1148721D435ACB5c88b
 FACTORY_CREATION_FEE_BNB=0.005
 PANCAKE_ROUTER=0x10ED43C718714eb63d5aA57B78B54704E256024E
 DEFAULT_REWARD_TOKEN=0x55d398326f99059fF775485246999027B3197955
-REQUIRED_TOKEN_SUFFIX=5555
+REQUIRED_TOKEN_SUFFIX=eeee
 
 APPLE_BACKEND_PORT=8787
 APPLE_CHAIN_ID=56
-APPLE_FACTORY_ADDRESS=0x8c0F9b5490d45c7fcBc29cDda2aA2843DBe2162e
+APPLE_FACTORY_ADDRESS=0xE2340E4B5242A3DbF6bdC453A2F234d6f132565b
 APPLE_BACKEND_TOKEN=
 APPLE_PUBLIC_BASE_URL=https://154.12.118.163.sslip.io
 APPLE_ASSET_DIR=work/assets
