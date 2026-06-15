@@ -4,6 +4,7 @@ const solc = require('solc');
 
 const root = process.cwd();
 const activeSources = [
+  'contracts/AppleAuditRegistry.sol',
   'contracts/AppleLaunchFactory.sol',
   'contracts/AppleLaunchDeployers.sol',
   'contracts/AppleMintVault.sol',

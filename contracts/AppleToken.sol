@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.28;
 
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -382,14 +382,6 @@ contract AppleToken is ERC20, Ownable {
         uint16 lpFeeBps;
         uint16 dividendFeeBps;
         uint16 burnFeeBps;
-    }
-
-    struct TaxBreakdown {
-        uint256 platformAmount;
-        uint256 marketingAmount;
-        uint256 liquidityAmount;
-        uint256 dividendAmount;
-        uint256 burnAmount;
     }
 
     struct LaunchConfig {
@@ -829,22 +821,28 @@ contract AppleToken is ERC20, Ownable {
             return;
         }
 
-        TaxBreakdown memory taxes = _buildTaxBreakdown(fee);
+        uint256 platformAmount = (fee * PLATFORM_TAX_SHARE_BPS) / BPS_DENOMINATOR;
+        uint256 projectFee = fee - platformAmount;
+        uint256 marketingAmount = (projectFee * fundFeeBps) / BPS_DENOMINATOR;
+        uint256 liquidityAmount = (projectFee * lpFeeBps) / BPS_DENOMINATOR;
+        uint256 dividendAmount = (projectFee * dividendFeeBps) / BPS_DENOMINATOR;
+        uint256 burnAmount = (projectFee * burnFeeBps) / BPS_DENOMINATOR;
+        uint256 routedAmount = marketingAmount + liquidityAmount + dividendAmount + burnAmount;
+        marketingAmount += projectFee - routedAmount;
 
         uint256 airdropAmount = _processAirdrops(from, value, fromPair || toPair, fee);
 
-        if (taxes.burnAmount > 0) {
-            totalTaxBurned += taxes.burnAmount;
-            super._update(from, LP_BLACK_HOLE, taxes.burnAmount);
+        if (burnAmount > 0) {
+            totalTaxBurned += burnAmount;
+            super._update(from, LP_BLACK_HOLE, burnAmount);
         }
 
-        uint256 collectedAmount = taxes.platformAmount + taxes.marketingAmount
-            + taxes.liquidityAmount + taxes.dividendAmount;
+        uint256 collectedAmount = platformAmount + marketingAmount + liquidityAmount + dividendAmount;
         if (collectedAmount > 0) {
-            tokensForPlatform += taxes.platformAmount;
-            tokensForMarketing += taxes.marketingAmount;
-            tokensForLiquidity += taxes.liquidityAmount;
-            tokensForDividends += taxes.dividendAmount;
+            tokensForPlatform += platformAmount;
+            tokensForMarketing += marketingAmount;
+            tokensForLiquidity += liquidityAmount;
+            tokensForDividends += dividendAmount;
             super._update(from, address(this), collectedAmount);
         }
 
@@ -862,11 +860,11 @@ contract AppleToken is ERC20, Ownable {
         emit TaxCollected(
             from,
             to,
-            taxes.platformAmount,
-            taxes.marketingAmount,
-            taxes.liquidityAmount,
-            taxes.dividendAmount,
-            taxes.burnAmount,
+            platformAmount,
+            marketingAmount,
+            liquidityAmount,
+            dividendAmount,
+            burnAmount,
             netAmount
         );
     }
@@ -940,23 +938,6 @@ contract AppleToken is ERC20, Ownable {
 
     function _taxPortion(uint16 taxBps, uint256 splitBps) private pure returns (uint256) {
         return (uint256(taxBps) * splitBps) / BPS_DENOMINATOR;
-    }
-
-    function _buildTaxBreakdown(uint256 fee)
-        private
-        view
-        returns (TaxBreakdown memory taxes)
-    {
-        taxes.platformAmount = (fee * PLATFORM_TAX_SHARE_BPS) / BPS_DENOMINATOR;
-        uint256 projectFee = fee - taxes.platformAmount;
-        taxes.marketingAmount = (projectFee * fundFeeBps) / BPS_DENOMINATOR;
-        taxes.liquidityAmount = (projectFee * lpFeeBps) / BPS_DENOMINATOR;
-        taxes.dividendAmount = (projectFee * dividendFeeBps) / BPS_DENOMINATOR;
-        taxes.burnAmount = (projectFee * burnFeeBps) / BPS_DENOMINATOR;
-
-        uint256 routedAmount = taxes.marketingAmount + taxes.liquidityAmount
-            + taxes.dividendAmount + taxes.burnAmount;
-        taxes.marketingAmount += projectFee - routedAmount;
     }
 
     function _marketingSplitBps() private view returns (uint256) {

@@ -309,7 +309,16 @@ const defaultForm = {
   owner: '',
   buyTax: '0',
   sellTax: '0',
-  burnRate: '1',
+  transferTax: '0',
+  addLiquidityTax: '0',
+  removeLiquidityTax: '0',
+  launchProtectionTax: '0',
+  launchProtectionBlocks: '0',
+  claimWaitSeconds: '60',
+  fundFeePercent: '44',
+  lpFeePercent: '18',
+  dividendFeePercent: '16',
+  burnRate: '10',
   initialLiquidity: '0.2',
   launchPrice: '0.000001',
   teamAllocation: '0',
@@ -663,6 +672,32 @@ function getLaunchFeeBnb(form) {
   return isWhitelistMintLaunch(form) ? WHITELIST_LAUNCH_FEE_BNB : LAUNCH_FEE_BNB;
 }
 
+function uintNumber(value) {
+  const clean = String(value || '0').trim();
+  if (!/^\d+$/.test(clean)) return 0;
+  const nextValue = Number(clean);
+  return Number.isSafeInteger(nextValue) && nextValue >= 0 ? nextValue : 0;
+}
+
+function getTaxSplitTotal(form) {
+  return numberValue(form.fundFeePercent) + numberValue(form.lpFeePercent) + numberValue(form.dividendFeePercent) + numberValue(form.burnRate);
+}
+
+function getAdvancedTaxSummary(form) {
+  if (form.templateId === 'zero-tax') return '零税模板';
+  const items = [
+    ['转账', form.transferTax],
+    ['加池', form.addLiquidityTax],
+    ['撤池', form.removeLiquidityTax],
+    ['保护', form.launchProtectionTax],
+  ].filter(([, value]) => numberValue(value) > 0);
+  return items.length ? items.map(([label, value]) => `${label}${formatBnb(value)}%`).join(' / ') : '无';
+}
+
+function getTaxSplitSummary(form) {
+  return `营销${formatBnb(form.fundFeePercent)}% / LP${formatBnb(form.lpFeePercent)}% / 分红${formatBnb(form.dividendFeePercent)}% / 销毁${formatBnb(form.burnRate)}%`;
+}
+
 function buildFactoryLaunchParams(form, creatorAddress) {
   const receiver = form.owner && isAddress(form.owner) ? form.owner : creatorAddress;
   const mintParams = getFairMintParams(form);
@@ -670,6 +705,10 @@ function buildFactoryLaunchParams(form, creatorAddress) {
   const zeroTaxMode = form.templateId === 'zero-tax';
   const buyTaxBps = zeroTaxMode ? 0 : percentToBps(form.buyTax);
   const sellTaxBps = zeroTaxMode ? 0 : percentToBps(form.sellTax);
+  const transferTaxBps = zeroTaxMode ? 0 : percentToBps(form.transferTax);
+  const addLiquidityTaxBps = zeroTaxMode ? 0 : percentToBps(form.addLiquidityTax);
+  const removeLiquidityTaxBps = zeroTaxMode ? 0 : percentToBps(form.removeLiquidityTax);
+  const launchProtectionTaxBps = zeroTaxMode ? 0 : percentToBps(form.launchProtectionTax);
 
   return {
     name: form.tokenName.trim(),
@@ -691,16 +730,16 @@ function buildFactoryLaunchParams(form, creatorAddress) {
     templateId: getTemplateId(form.templateId),
     buyTaxBps,
     sellTaxBps,
-    transferTaxBps: 0,
-    addLiquidityTaxBps: 0,
-    removeLiquidityTaxBps: 0,
-    launchProtectionTaxBps: 0,
-    launchProtectionBlocks: 0,
-    claimWait: 0,
-    fundFeeBps: 4400,
-    lpFeeBps: 1800,
-    dividendFeeBps: isDividendTemplate(form.templateId) ? 1600 : 0,
-    burnFeeBps: Math.min(10000, percentToBps(form.burnRate)),
+    transferTaxBps,
+    addLiquidityTaxBps,
+    removeLiquidityTaxBps,
+    launchProtectionTaxBps,
+    launchProtectionBlocks: uintNumber(form.launchProtectionBlocks),
+    claimWait: uintNumber(form.claimWaitSeconds),
+    fundFeeBps: percentToBps(form.fundFeePercent),
+    lpFeeBps: percentToBps(form.lpFeePercent),
+    dividendFeeBps: percentToBps(form.dividendFeePercent),
+    burnFeeBps: percentToBps(form.burnRate),
     whitelistMintCount: form.whitelist ? mintParams.whiteLimit : 0n,
     whitelistEnabled: Boolean(form.whitelist),
   };
@@ -1670,11 +1709,30 @@ function App() {
     }
     if (normalizeHexSuffix(form.vanitySuffix).length > 4) return 'Apple/Kaola 工厂尾号最多支持 4 位十六进制字符';
     if (form.owner.trim() && !isAddress(form.owner)) return '项目归属钱包地址格式不正确';
-    if (numberValue(form.buyTax) < 0 || numberValue(form.sellTax) < 0) return '税率不能小于 0';
+    const taxFields = [
+      ['买税', form.buyTax],
+      ['卖税', form.sellTax],
+      ['转账税', form.transferTax],
+      ['加池税', form.addLiquidityTax],
+      ['撤池税', form.removeLiquidityTax],
+      ['开盘保护税', form.launchProtectionTax],
+    ];
+    const invalidTax = taxFields.find(([, value]) => numberValue(value) < 0 || numberValue(value) > 25);
+    if (invalidTax) return `${invalidTax[0]}必须在 0% - 25% 之间`;
+    const splitFields = [
+      ['营销分配', form.fundFeePercent],
+      ['LP分配', form.lpFeePercent],
+      ['分红分配', form.dividendFeePercent],
+      ['销毁分配', form.burnRate],
+    ];
+    const invalidSplit = splitFields.find(([, value]) => numberValue(value) < 0 || numberValue(value) > 100);
+    if (invalidSplit) return `${invalidSplit[0]}必须在 0% - 100% 之间`;
+    if (getTaxSplitTotal(form) > 100) return '税收分配总和不能超过 100%';
+    if (String(form.launchProtectionBlocks || '0').trim() && !/^\d+$/.test(String(form.launchProtectionBlocks).trim())) return '保护区块必须是整数';
+    if (String(form.claimWaitSeconds || '0').trim() && !/^\d+$/.test(String(form.claimWaitSeconds).trim())) return '分红等待秒数必须是整数';
+    if (uintNumber(form.claimWaitSeconds) > 24 * 60 * 60) return '分红等待秒数不能超过 24 小时';
     if (isDividendTemplate(form.templateId)) {
       if (!isAddress(TOKEN_CONTRACT)) return '平台币地址未配置，暂不能创建分红模板';
-      if (percentToBps(form.buyTax) + percentToBps(form.sellTax) <= 0) return '分红模板需要设置买税或卖税，用来累积分红池';
-      if (percentToBps(form.buyTax) > 1000 || percentToBps(form.sellTax) > 1000) return '分红模板单边税率不能超过 10%';
       if (numberValue(form.autoClaimThreshold) <= 0) return '平台币自动到账门槛必须大于 0';
     }
     if (!form.deadLiquidity) return '平台规则要求底池 LP 全部打入 dead 黑洞';
@@ -1828,9 +1886,11 @@ function App() {
           ? [
               ['分红平台币', shortAddress(TOKEN_CONTRACT)],
               ['自动到账门槛', `${form.autoClaimThreshold || 4} 平台币`],
-              ['买/卖税', `${form.buyTax}% / ${form.sellTax}%`],
             ]
           : []),
+        ['买/卖税', `${form.buyTax}% / ${form.sellTax}%`],
+        ['高级税', getAdvancedTaxSummary(form)],
+        ['税收分配', getTaxSplitSummary(form)],
         ['LP接收', shortAddress(DEAD_ADDRESS)],
         ['尾号定制', suffix ? `...${suffix}` : '未指定'],
         ['Salt', suffix ? '确认时后端匹配' : form.vanitySalt ? shortAddress(saltToBytes32(form.vanitySalt)) : '确认时自动生成'],
@@ -2671,6 +2731,33 @@ function LaunchWorkbench({
               <FormField label="卖税 %">
                 <input value={form.sellTax} onChange={(event) => update('sellTax', event.target.value)} inputMode="decimal" />
               </FormField>
+              <FormField label="转账税 %">
+                <input value={form.transferTax} onChange={(event) => update('transferTax', event.target.value)} inputMode="decimal" />
+              </FormField>
+              <FormField label="加池税 %">
+                <input value={form.addLiquidityTax} onChange={(event) => update('addLiquidityTax', event.target.value)} inputMode="decimal" />
+              </FormField>
+              <FormField label="撤池税 %">
+                <input value={form.removeLiquidityTax} onChange={(event) => update('removeLiquidityTax', event.target.value)} inputMode="decimal" />
+              </FormField>
+              <FormField label="开盘保护税 %">
+                <input value={form.launchProtectionTax} onChange={(event) => update('launchProtectionTax', event.target.value)} inputMode="decimal" />
+              </FormField>
+              <FormField label="保护区块">
+                <input value={form.launchProtectionBlocks} onChange={(event) => update('launchProtectionBlocks', event.target.value)} inputMode="numeric" />
+              </FormField>
+              <FormField label="分红等待秒">
+                <input value={form.claimWaitSeconds} onChange={(event) => update('claimWaitSeconds', event.target.value)} inputMode="numeric" />
+              </FormField>
+              <FormField label="营销分配 %">
+                <input value={form.fundFeePercent} onChange={(event) => update('fundFeePercent', event.target.value)} inputMode="decimal" />
+              </FormField>
+              <FormField label="LP分配 %">
+                <input value={form.lpFeePercent} onChange={(event) => update('lpFeePercent', event.target.value)} inputMode="decimal" />
+              </FormField>
+              <FormField label="分红分配 %">
+                <input value={form.dividendFeePercent} onChange={(event) => update('dividendFeePercent', event.target.value)} inputMode="decimal" />
+              </FormField>
               {isDividendTemplate(form.templateId) && (
                 <>
                   <FormField label="平台币到账门槛">
@@ -2687,8 +2774,9 @@ function LaunchWorkbench({
                   </FormField>
                 </>
               )}
-              <FormField label="燃烧比例 %">
+              <FormField label="销毁分配 %">
                 <input value={form.burnRate} onChange={(event) => update('burnRate', event.target.value)} inputMode="decimal" />
+                <small className="field-hint">当前分配合计 {formatBnb(getTaxSplitTotal(form))}%</small>
               </FormField>
               <FormField label="开始时间">
                 <input value={form.startTime} onChange={(event) => update('startTime', event.target.value)} placeholder="立即 / 指定时间" />
@@ -2869,6 +2957,8 @@ function LaunchWorkbench({
               <MiniMetric label="Mint募集上限" value={`${formatBnb(mintRaise)} BNB`} />
               <MiniMetric label="黑洞地址" value={shortAddress(DEAD_ADDRESS)} />
               <MiniMetric label="买/卖税" value={`${form.buyTax}% / ${form.sellTax}%`} />
+              <MiniMetric label="高级税" value={getAdvancedTaxSummary(form)} />
+              <MiniMetric label="税收分配" value={getTaxSplitSummary(form)} />
               <MiniMetric label="尾号定制" value={`...${normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)}`} />
               <MiniMetric label="Owner" value="项目方 Owner / 打满后 LP 黑洞" />
               <MiniMetric label="白名单" value={form.whitelist ? `${whitelistInfo.valid.length} 地址 / ${mintParams.whiteLimit.toString()} 份` : '未开启'} />
@@ -2946,6 +3036,8 @@ function LaunchWorkbench({
                   <MiniMetric label="Mint总份数" value={`${mintParams.mintLimit.toString()} 份`} />
                   <MiniMetric label="配池代币储备" value={`${formatUnits(mintParams.liquidityTokenAmount, 18, 4)} ${form.symbol || 'PEPE'}`} />
                   <MiniMetric label="买/卖税" value={`${form.buyTax}% / ${form.sellTax}%`} />
+                  <MiniMetric label="高级税" value={getAdvancedTaxSummary(form)} />
+                  <MiniMetric label="税收分配" value={getTaxSplitSummary(form)} />
                   {isDividendTemplate(form.templateId) && <MiniMetric label="分红平台币" value={shortAddress(TOKEN_CONTRACT)} />}
                   {isDividendTemplate(form.templateId) && <MiniMetric label="自动到账门槛" value={`${form.autoClaimThreshold || 4} 平台币`} />}
                   <MiniMetric label="LP接收" value={shortAddress(DEAD_ADDRESS)} />
