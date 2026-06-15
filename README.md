@@ -1,52 +1,40 @@
-# PEPE发射擂台 · BSC版
+# PEPE 发射擂台 · BSC 版
 
-BSC 版公平 Meme 发射工具前端，使用 Vite + React 构建。页面聚焦 PEPE 青蛙擂台视觉、直接发币、自由 Mint、黑洞底池和真实钱包交易。
+BSC 版公平 Meme 发射工具前端，使用 Vite + React 构建。页面继续保留 PEPE 青蛙擂台视觉，链上发射逻辑已切换为 Apple/Kaola 发射合约。
 
 ## 自助发币工厂
 
-仓库已加入 `contracts/PepeLaunchFactory.sol` 作为 BSC 发币工厂：
+当前主流程调用 `AppleLaunchFactory.createLaunch`，创建 `AppleToken + AppleMintVault`：
 
-- `deployFromTemplate`: 按开放模板 ID 部署直接发币和分红币
-- `deployFairMintLaunch`: 创建新币和白名单 Mint 池，白名单可在创建时初始化
-- `deployToken`: 高级受控入口，只有已批准 creationCode hash 才能部署
-- `predictTokenAddress` / `predictTemplateTokenAddress`: CREATE2 预测地址，支持尾号定制
-- `getDeployments` / `getCreatorTokens` / `getLaunchedTokens` / `getTemplateDeployments`: 链上发射记录分页查询
-- 直接发币强制创建 PancakeSwap 初始池子，LP 直接打入 `0x...dEaD`
-- 自由 Mint 池支持每一笔 Mint 按比例自动加 PancakeSwap LP，LP 直接打入 `0x...dEaD`
-- 普通 Mint 创建费 `0.005 BNB`，白名单 Mint 创建费 `0.01 BNB`
-- Mint 未打满且超过退款窗口后，用户可手动退款可退余额；已进入 dead LP 的资金不可退回
-- 分红模板支持税收自动换默认平台币，并按门槛滚动自动打款到持币钱包
-- 超额 BNB 会退款；新币支持创建后立即丢权限
-- 前端已加入“自助发币工厂”方案面板，默认调用已部署 Factory，也可用 `VITE_FACTORY_CONTRACT` 覆盖
+- 支持白名单 Mint 和公开 Mint
+- Mint 收款按规则自动加 PancakeSwap LP
+- LP 接收地址固定为 `0x...dEaD`
+- 未打满且超过退款窗口后，用户可手动退款可退余额
+- 支持分红模板、税率参数、链上发射记录分页查询
+- 创建费默认 `0.005 BNB`
+- Token 地址尾号由工厂 `requiredTokenSuffix` 强制校验
 
-部署脚本会先部署 `FairMintPool` 与 `DividendMemeToken` 实现合约，再部署主 Factory。主 Factory 构造参数需要 `feeReceiver`、`creationFee`、PancakeSwap V2 Router、默认分红平台币地址和两个实现合约地址。
+默认靓号尾号为 `eeee`。部署新工厂时，`scripts/deploy-factory.cjs` 会读取 `REQUIRED_TOKEN_SUFFIX` / `VITE_VANITY_SUFFIX`，未配置时默认使用 `eeee`。
 
-当前 Hardhat 部署脚本默认收 mint/创建费地址为：`0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939`。
-
-当前前端默认 Factory 地址为：`0xB9447a3691e171876CBA4Cd98dd27904EF266abc`。
-
-Factory 已在 BscScan 开源验证：`https://bscscan.com/address/0xB9447a3691e171876CBA4Cd98dd27904EF266abc#code`。
-
-模板实现合约：
-
-- FairMintPool: `https://bscscan.com/address/0xd9e15f71246a925E332DEC2e41873F274bE0085d#code`
-- DividendMemeToken: `https://bscscan.com/address/0x980BD791A13CEF80ede1d358c97161184Fe0CF86#code`
-
-默认分红平台币地址为：`0xb3b2afb0de33d4d80a20839662bc99c6b360eeee`。
-
-当前已部署 Factory 创建费为：普通 Mint `0.005 BNB`，白名单 Mint `0.01 BNB`。
+注意：已部署工厂的尾号是不可变的。如果后端 `/health` 返回的 `requiredTokenSuffix` 不是 `eeee`，需要重新部署一个 `0xeeee` 工厂，并同步更新 `VITE_FACTORY_CONTRACT` 与 `APPLE_FACTORY_ADDRESS`。
 
 ```bash
 npm run hardhat:compile
 npm run deploy:factory:bsc
 ```
 
-## 本地运行
+## 靓号 Salt 后端
+
+尾号校验依赖 CREATE2 salt 搜索，前端会请求本项目的后端接口 `/api/vanity-salt`。本地开发时需要同时运行后端和前端：
 
 ```bash
 npm install
+npm run hardhat:compile
+npm run backend
 npm run dev
 ```
+
+生产环境部署时，需要把 `VITE_APP_BACKEND_URL` 配置为公开可访问的后端地址，并让后端的 `APPLE_FACTORY_ADDRESS` 指向同一个 `VITE_FACTORY_CONTRACT`。
 
 ## Cloudflare Pages
 
@@ -65,11 +53,25 @@ npm run deploy:cloudflare
 
 ## 环境变量
 
-真实链上支付入口由部署环境配置：
-
 ```env
 VITE_PAYMENT_RECEIVER=
-VITE_FACTORY_CONTRACT=0xB9447a3691e171876CBA4Cd98dd27904EF266abc
-VITE_MINT_CONTRACT=0xc7e6324dc30939ce8e9b9bd9976a23598a97b204
-VITE_TOKEN_CONTRACT=0xFc212E328041691F71Fe7FDD5849F2704bd2eeee
+VITE_FACTORY_CONTRACT=0xEd168e31FD49E09794E8d21c2DE92b7188Ed3eE9
+VITE_VANITY_SUFFIX=eeee
+VITE_APP_BACKEND_URL=http://localhost:8787
+VITE_MINT_CONTRACT=
+VITE_TOKEN_CONTRACT=
+
+PRIVATE_KEY=
+BSC_RPC_URL=https://bsc-rpc.publicnode.com
+BSCSCAN_API_KEY=
+FACTORY_FEE_RECEIVER=0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939
+FACTORY_CREATION_FEE_BNB=0.005
+PANCAKE_ROUTER=0x10ED43C718714eb63d5aA57B78B54704E256024E
+DEFAULT_REWARD_TOKEN=0x55d398326f99059fF775485246999027B3197955
+REQUIRED_TOKEN_SUFFIX=eeee
+
+APPLE_BACKEND_PORT=8787
+APPLE_CHAIN_ID=56
+APPLE_FACTORY_ADDRESS=0xEd168e31FD49E09794E8d21c2DE92b7188Ed3eE9
+APPLE_BACKEND_TOKEN=
 ```

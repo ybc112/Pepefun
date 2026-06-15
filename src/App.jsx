@@ -24,7 +24,7 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react';
-import { Contract, Interface, JsonRpcProvider, keccak256, toUtf8Bytes } from 'ethers';
+import { Contract, Interface, JsonRpcProvider, hexlify, keccak256, randomBytes, toUtf8Bytes } from 'ethers';
 import pepeArenaArt from './assets/pepe-arena.svg';
 
 const STORAGE_KEY = 'pepe-launch-arena-draft-factory';
@@ -37,6 +37,11 @@ const MINT_CONTRACT = import.meta.env.VITE_MINT_CONTRACT || '';
 const TOKEN_CONTRACT = import.meta.env.VITE_TOKEN_CONTRACT || '';
 const DEFAULT_REWARD_TOKEN = import.meta.env.VITE_REWARD_TOKEN_CONTRACT || '0x55d398326f99059fF775485246999027B3197955';
 const CONTRACT_SOURCE_URL = 'https://github.com/ybc112/Pepefun/tree/main/contracts';
+const DEFAULT_VANITY_SUFFIX = 'eeee';
+const VANITY_SUFFIX = normalizeHexSuffix(import.meta.env.VITE_VANITY_SUFFIX || DEFAULT_VANITY_SUFFIX) || DEFAULT_VANITY_SUFFIX;
+const DEFAULT_APP_BACKEND_URL = import.meta.env.DEV ? 'http://localhost:8787' : '';
+const APP_BACKEND_URL = normalizeBackendBaseUrl(import.meta.env.VITE_APP_BACKEND_URL || DEFAULT_APP_BACKEND_URL);
+const BSC_CHAIN_ID = 56;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const DEAD_ADDRESS = '0x000000000000000000000000000000000000dEaD';
 const BSC_PUBLIC_RPCS = ['https://bsc-mainnet.public.blastapi.io', 'https://bsc-rpc.publicnode.com', 'https://bsc.drpc.org'];
@@ -330,7 +335,7 @@ const defaultForm = {
   whitelist: true,
   whitelistAddresses: '',
   mintQuantity: '1',
-  vanitySuffix: '',
+  vanitySuffix: VANITY_SUFFIX,
   vanitySalt: '',
   autoVerify: true,
   logoData: '',
@@ -380,6 +385,7 @@ function loadDraft() {
         ...saved.form,
         mode: 'mint',
         templateId: saved.form?.templateId || defaultForm.templateId,
+        vanitySuffix: normalizeHexSuffix(saved.form?.vanitySuffix || defaultForm.vanitySuffix),
         deadLiquidity: true,
         renounceOwner: true,
       };
@@ -657,6 +663,49 @@ function getLaunchFeeBnb(form) {
   return isWhitelistMintLaunch(form) ? WHITELIST_LAUNCH_FEE_BNB : LAUNCH_FEE_BNB;
 }
 
+function buildFactoryLaunchParams(form, creatorAddress) {
+  const receiver = form.owner && isAddress(form.owner) ? form.owner : creatorAddress;
+  const mintParams = getFairMintParams(form);
+  const dividendParams = getDividendParams(form);
+  const zeroTaxMode = form.templateId === 'zero-tax';
+  const buyTaxBps = zeroTaxMode ? 0 : percentToBps(form.buyTax);
+  const sellTaxBps = zeroTaxMode ? 0 : percentToBps(form.sellTax);
+
+  return {
+    name: form.tokenName.trim(),
+    symbol: cleanSymbol(form.symbol),
+    metadataUri: JSON.stringify({
+      website: String(form.website || '').trim(),
+      x: String(form.x || '').trim(),
+      telegram: String(form.telegram || '').trim(),
+      note: String(form.note || '').trim(),
+    }),
+    totalSupply: decimalToUnits(form.totalSupply, 18),
+    mintCount: mintParams.mintLimit,
+    mintPrice: mintParams.price,
+    maxMintPerWallet: mintParams.accMintLimit,
+    paymentToken: ZERO_ADDRESS,
+    rewardToken: isAddress(dividendParams.rewardToken) ? dividendParams.rewardToken : ZERO_ADDRESS,
+    rewardThreshold: dividendParams.autoClaimThreshold,
+    receiver,
+    templateId: getTemplateId(form.templateId),
+    buyTaxBps,
+    sellTaxBps,
+    transferTaxBps: 0,
+    addLiquidityTaxBps: 0,
+    removeLiquidityTaxBps: 0,
+    launchProtectionTaxBps: 0,
+    launchProtectionBlocks: 0,
+    claimWait: 0,
+    fundFeeBps: 4400,
+    lpFeeBps: 1800,
+    dividendFeeBps: isDividendTemplate(form.templateId) ? 1600 : 0,
+    burnFeeBps: Math.min(10000, percentToBps(form.burnRate)),
+    whitelistMintCount: form.whitelist ? mintParams.whiteLimit : 0n,
+    whitelistEnabled: Boolean(form.whitelist),
+  };
+}
+
 function isDividendTemplate(templateId) {
   return templateId === 'reflection' || templateId === 'dividend-token';
 }
@@ -703,7 +752,7 @@ function normalizeHexSuffix(value) {
     .replace(/^0x/i, '')
     .replace(/[^0-9a-f]/gi, '')
     .toLowerCase()
-    .slice(0, 10);
+    .slice(0, 4);
 }
 
 function suffixToUint160(value) {
@@ -716,6 +765,81 @@ function saltToBytes32(value, seed = '') {
   if (/^0x[0-9a-fA-F]{64}$/.test(clean)) return clean;
   if (clean) return keccak256(toUtf8Bytes(clean));
   return keccak256(toUtf8Bytes(`${seed}-${Date.now()}-${Math.random()}`));
+}
+
+function normalizeBackendBaseUrl(value) {
+  const nextValue = String(value || '').trim();
+  if (nextValue === 'same-origin' && typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+  return nextValue.replace(/\/+$/, '');
+}
+
+function buildBackendUrl(path) {
+  return `${APP_BACKEND_URL}${path}`;
+}
+
+function serializeFactoryParams(params) {
+  return Object.fromEntries(
+    Object.entries(params).map(([key, value]) => [key, typeof value === 'bigint' ? value.toString() : value]),
+  );
+}
+
+async function resolveLaunchSalt(creator, params, suffix) {
+  const vanitySuffix = normalizeHexSuffix(suffix);
+  if (!vanitySuffix) {
+    return {
+      salt: hexlify(randomBytes(32)),
+      predictedTokenAddress: '',
+      vanitySuffix: '',
+      vanityAttempts: 0,
+    };
+  }
+
+  if (!APP_BACKEND_URL) {
+    throw new Error(`靓号尾号 ...${vanitySuffix} 需要配置 VITE_APP_BACKEND_URL 并运行后端。`);
+  }
+
+  const response = await fetch(buildBackendUrl('/api/vanity-salt'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      suffix: vanitySuffix,
+      maxIterations: 500000,
+      creator,
+      params: serializeFactoryParams(params),
+    }),
+  });
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(result.error || `没有匹配到 ...${vanitySuffix} 靓号地址，请稍后重试。`);
+  }
+
+  if (!result.ok || !/^0x[0-9a-fA-F]{64}$/.test(String(result.salt || ''))) {
+    throw new Error(`没有匹配到 ...${vanitySuffix} 靓号地址，请稍后重试。`);
+  }
+
+  if (
+    !isAddress(result.factory) ||
+    result.factory.toLowerCase() !== FACTORY_CONTRACT.toLowerCase() ||
+    Number(result.chainId || 0) !== BSC_CHAIN_ID
+  ) {
+    throw new Error('靓号后端连接的工厂或链 ID 与当前页面不一致。');
+  }
+
+  const matchedSuffix = normalizeHexSuffix(result.suffix || vanitySuffix);
+  const predictedTokenAddress = isAddress(result.tokenAddress) ? result.tokenAddress : '';
+  if (!predictedTokenAddress || !predictedTokenAddress.toLowerCase().endsWith(matchedSuffix)) {
+    throw new Error(`后端返回的 Token 地址没有命中 ...${matchedSuffix}。`);
+  }
+
+  return {
+    salt: result.salt,
+    predictedTokenAddress,
+    vanitySuffix: matchedSuffix,
+    vanityAttempts: Number(result.attempts || 0),
+  };
 }
 
 function getMetadataHash(form) {
@@ -1201,13 +1325,18 @@ function App() {
   }
 
   async function mineVanitySalt() {
-    const suffix = normalizeHexSuffix(form.vanitySuffix);
+    const suffix = normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX);
     if (!suffix) {
       notify('请先填写想要的合约尾号，例如 8888');
       return;
     }
-    if (suffix.length > 6) {
-      notify('页面最多帮你生成 6 位尾号；更长尾号建议用脚本离线找 salt');
+    if (suffix.length > 4) {
+      notify('Apple/Kaola 工厂按后 4 位校验尾号，请填写 1-4 位十六进制字符');
+      return;
+    }
+    const validation = validateLaunch();
+    if (validation) {
+      notify(validation);
       return;
     }
     const { address } = await ensureWallet();
@@ -1219,10 +1348,13 @@ function App() {
 
     setBusy(true);
     try {
-      const rawSalt = keccak256(toUtf8Bytes(`${address}-${suffix || 'apple'}-${Date.now()}-${Math.random()}`));
-      update('vanitySalt', rawSalt);
-      setVanityPreview('');
-      notify(suffix ? `已生成 Apple 发射 Salt；尾号 ...${suffix} 由链上工厂校验。` : '已生成 Apple 发射 Salt');
+      const params = buildFactoryLaunchParams(form, address);
+      notify(`正在匹配 Token 地址尾号 ...${suffix}，找到后会自动填入 Salt。`);
+      const vanity = await resolveLaunchSalt(address, params, suffix);
+      update('vanitySuffix', vanity.vanitySuffix || suffix);
+      update('vanitySalt', vanity.salt);
+      setVanityPreview(vanity.predictedTokenAddress || '');
+      notify(`已匹配靓号 ...${vanity.vanitySuffix || suffix}，尝试 ${vanity.vanityAttempts || 0} 次。`);
     } catch (error) {
       notify(error.message || '尾号 salt 生成失败');
     } finally {
@@ -1318,50 +1450,17 @@ function App() {
       throw new Error('发币工厂合约还未准备好，暂不能创建新币。');
     }
 
-    const receiver = form.owner && isAddress(form.owner) ? form.owner : address;
-    const totalSupply = decimalToUnits(form.totalSupply, 18);
-    const mintParams = getFairMintParams(form);
-    const dividendParams = getDividendParams(form);
-    const templateId = getTemplateId(form.templateId);
-    const salt = saltToBytes32(form.vanitySalt, `${address}-${form.symbol}-${form.tokenName}`);
     const whitelistInfo = parseWhitelist(form.whitelistAddresses);
-    const zeroTaxMode = form.templateId === 'zero-tax';
-    const buyTaxBps = zeroTaxMode ? 0 : percentToBps(form.buyTax);
-    const sellTaxBps = zeroTaxMode ? 0 : percentToBps(form.sellTax);
-    const burnFeeBps = Math.min(10000, percentToBps(form.burnRate));
-    const params = {
-      name: form.tokenName.trim(),
-      symbol: cleanSymbol(form.symbol),
-      metadataUri: JSON.stringify({
-        website: String(form.website || '').trim(),
-        x: String(form.x || '').trim(),
-        telegram: String(form.telegram || '').trim(),
-        note: String(form.note || '').trim(),
-      }),
-      totalSupply,
-      mintCount: mintParams.mintLimit,
-      mintPrice: mintParams.price,
-      maxMintPerWallet: mintParams.accMintLimit,
-      paymentToken: ZERO_ADDRESS,
-      rewardToken: isAddress(dividendParams.rewardToken) ? dividendParams.rewardToken : ZERO_ADDRESS,
-      rewardThreshold: dividendParams.autoClaimThreshold,
-      receiver,
-      templateId,
-      buyTaxBps,
-      sellTaxBps,
-      transferTaxBps: 0,
-      addLiquidityTaxBps: 0,
-      removeLiquidityTaxBps: 0,
-      launchProtectionTaxBps: 0,
-      launchProtectionBlocks: 0,
-      claimWait: 0,
-      fundFeeBps: 4400,
-      lpFeeBps: 1800,
-      dividendFeeBps: isDividendTemplate(form.templateId) ? 1600 : 0,
-      burnFeeBps,
-      whitelistMintCount: form.whitelist ? mintParams.whiteLimit : 0n,
-      whitelistEnabled: Boolean(form.whitelist),
-    };
+    const params = buildFactoryLaunchParams(form, address);
+    const suffix = normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX);
+    const vanity = await resolveLaunchSalt(address, params, suffix);
+    const salt = suffix ? vanity.salt : saltToBytes32(form.vanitySalt, `${address}-${form.symbol}-${form.tokenName}`);
+    if (vanity.vanitySuffix) {
+      update('vanitySuffix', vanity.vanitySuffix);
+      update('vanitySalt', salt);
+      setVanityPreview(vanity.predictedTokenAddress || '');
+      notify(`已锁定 Token 地址尾号 ...${vanity.vanitySuffix}，正在拉起钱包。`);
+    }
     const data = FACTORY_WRITE_INTERFACE.encodeFunctionData('createLaunch', [params, salt]);
     const expectedValue =
       currentCheckout.valueWei && currentCheckout.valueWei !== '0'
@@ -1411,6 +1510,9 @@ function App() {
       blockNumber: deployment?.blockNumber || null,
       confirmed: Boolean(receipt && receipt.status === '0x1'),
       salt,
+      predictedTokenAddress: vanity.predictedTokenAddress || '',
+      vanitySuffix: vanity.vanitySuffix || '',
+      vanityAttempts: vanity.vanityAttempts || 0,
       actionLabel: form.whitelist ? '创建白名单Mint池' : '创建公开Mint池',
     };
   }
@@ -1566,7 +1668,7 @@ function App() {
     if (normalizeHexSuffix(form.vanitySuffix).length !== String(form.vanitySuffix || '').replace(/^0x/i, '').replace(/\s+/g, '').length) {
       return '尾号只能填写 0-9 / a-f 的十六进制字符';
     }
-    if (normalizeHexSuffix(form.vanitySuffix).length > 6) return '页面生成盐值建议尾号不超过 6 位，合约最高支持 10 位';
+    if (normalizeHexSuffix(form.vanitySuffix).length > 4) return 'Apple/Kaola 工厂尾号最多支持 4 位十六进制字符';
     if (form.owner.trim() && !isAddress(form.owner)) return '项目归属钱包地址格式不正确';
     if (numberValue(form.buyTax) < 0 || numberValue(form.sellTax) < 0) return '税率不能小于 0';
     if (isDividendTemplate(form.templateId)) {
@@ -1695,7 +1797,7 @@ function App() {
     const mintParams = getFairMintParams(form);
     const mintLaunchName = form.whitelist ? '白名单 Mint 池' : '公开 Mint 池';
     const templateId = getTemplateId(form.templateId);
-    const suffix = normalizeHexSuffix(form.vanitySuffix);
+    const suffix = normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX);
     const totalValueWei = factoryReady ? factoryFeeWei : 0n;
     setCheckout({
       type: factoryReady ? 'factoryCreate' : 'factoryPlan',
@@ -1731,7 +1833,7 @@ function App() {
           : []),
         ['LP接收', shortAddress(DEAD_ADDRESS)],
         ['尾号定制', suffix ? `...${suffix}` : '未指定'],
-        ['Salt', form.vanitySalt ? shortAddress(saltToBytes32(form.vanitySalt)) : '确认时自动生成'],
+        ['Salt', suffix ? '确认时后端匹配' : form.vanitySalt ? shortAddress(saltToBytes32(form.vanitySalt)) : '确认时自动生成'],
         ['权限', 'Token / Mint Vault Owner 给项目方，打满后 LP 进 dead'],
         ['接收钱包', form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '确认时连接'],
         ['白名单', form.whitelist ? `${whitelistInfo.valid.length} 个地址 / ${mintParams.whiteLimit.toString()} 份` : '未开启'],
@@ -2595,7 +2697,7 @@ function LaunchWorkbench({
                 <input
                   value={form.vanitySuffix}
                   onChange={(event) => update('vanitySuffix', normalizeHexSuffix(event.target.value))}
-                  placeholder="例如 8888"
+                  placeholder="例如 eeee"
                 />
               </FormField>
               <FormField label="CREATE2 Salt">
@@ -2605,9 +2707,9 @@ function LaunchWorkbench({
                     onChange={(event) => update('vanitySalt', event.target.value)}
                     placeholder="不填则自动生成"
                   />
-                  <button className="secondary" disabled={busy || !form.vanitySuffix} onClick={mineVanitySalt} type="button">
+                  <button className="secondary" disabled={busy || !normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)} onClick={mineVanitySalt} type="button">
                     <Gauge size={15} />
-                    生成尾号Salt
+                    匹配靓号Salt
                   </button>
                 </div>
                 {vanityPreview && <small className="field-hint">预测地址：{shortAddress(vanityPreview)}，尾号已匹配</small>}
@@ -2767,7 +2869,7 @@ function LaunchWorkbench({
               <MiniMetric label="Mint募集上限" value={`${formatBnb(mintRaise)} BNB`} />
               <MiniMetric label="黑洞地址" value={shortAddress(DEAD_ADDRESS)} />
               <MiniMetric label="买/卖税" value={`${form.buyTax}% / ${form.sellTax}%`} />
-              <MiniMetric label="尾号定制" value={form.vanitySuffix ? `...${normalizeHexSuffix(form.vanitySuffix)}` : '随机地址'} />
+              <MiniMetric label="尾号定制" value={`...${normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)}`} />
               <MiniMetric label="Owner" value="项目方 Owner / 打满后 LP 黑洞" />
               <MiniMetric label="白名单" value={form.whitelist ? `${whitelistInfo.valid.length} 地址 / ${mintParams.whiteLimit.toString()} 份` : '未开启'} />
               <MiniMetric label="每笔加池" value="BNB 100% / 币 50%" />
@@ -2847,7 +2949,7 @@ function LaunchWorkbench({
                   {isDividendTemplate(form.templateId) && <MiniMetric label="分红平台币" value={shortAddress(TOKEN_CONTRACT)} />}
                   {isDividendTemplate(form.templateId) && <MiniMetric label="自动到账门槛" value={`${form.autoClaimThreshold || 4} 平台币`} />}
                   <MiniMetric label="LP接收" value={shortAddress(DEAD_ADDRESS)} />
-                  <MiniMetric label="尾号定制" value={form.vanitySuffix ? `...${normalizeHexSuffix(form.vanitySuffix)}` : '随机'} />
+                  <MiniMetric label="尾号定制" value={`...${normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)}`} />
                   <MiniMetric label="Token权限" value="项目方 Owner / 打满后 LP 黑洞" />
                   <MiniMetric label="接收钱包" value={form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '创建钱包'} />
                 </div>
@@ -3092,7 +3194,7 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
         <MiniMetric label="退款窗口" value="24 小时" />
         <MiniMetric label="配池代币储备" value={`${formatUnits(mintParams.liquidityTokenAmount, 18, 4)} ${cleanSymbol(form.symbol) || 'PEPE'}`} />
         <MiniMetric label="LP接收" value={shortAddress(DEAD_ADDRESS)} />
-        <MiniMetric label="尾号" value={form.vanitySuffix ? `...${normalizeHexSuffix(form.vanitySuffix)}` : '可选'} />
+        <MiniMetric label="尾号" value={`...${normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)}`} />
         <MiniMetric label="权限" value="项目方 Owner / 打满后 LP 黑洞" />
       </div>
       <div className="factory-actions">
