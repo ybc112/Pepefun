@@ -89,7 +89,7 @@ const launchModes = [
     id: 'direct',
     title: '标准发射',
     kicker: '适合常规项目',
-    text: '设定总量、税率、Mint 份数和白名单，支付创建费后生成 AppleToken + AppleMintVault。',
+    text: '设定总量、税率、Mint 份数和白名单，支付创建费后生成新币和 Mint 池。',
     icon: Rocket,
   },
   {
@@ -1009,7 +1009,7 @@ function App() {
       return;
     }
     if (suffix.length > 4) {
-      notify('Apple/Kaola 工厂按后 4 位校验尾号，请填写 1-4 位十六进制字符');
+      notify('当前发币工厂按后 4 位校验尾号，请填写 1-4 位十六进制字符');
       return;
     }
     const validation = validateLaunch();
@@ -1146,7 +1146,7 @@ function App() {
     let whitelistTxHash = '';
 
     if (deployment?.poolAddress && form.whitelist && whitelistInfo.valid.length > 0) {
-      notify('Mint Vault 已创建，正在写入白名单地址。');
+      notify('Mint池已创建，正在写入白名单地址。');
       whitelistTxHash = await provider.request({
         method: 'eth_sendTransaction',
         params: [
@@ -1224,7 +1224,7 @@ function App() {
     setCheckout({
       type: 'contractAction',
       title: '手动退款',
-      description: '这次会调用该 Apple Mint Vault 的 claimRefund()。只有在未打满并超过退款窗口后，合约才会退回当前钱包的可退余额。',
+      description: '这次会调用该 Mint 池的退款方法。只有在未打满并超过退款窗口后，合约才会退回当前钱包的可退余额。',
       amountBnb: '0',
       valueWei: '0',
       receiver: deployment.pool,
@@ -1257,7 +1257,7 @@ function App() {
     setCheckout({
       type: 'contractAction',
       title: `Mint ${mintQuantity.toString()} 份`,
-      description: '这次会调用该 Apple Mint Vault 的 mint(uint256)，钱包弹窗里的接收地址应为当前项目的 Mint Vault。',
+      description: '这次会调用该 Mint 池的 mint 方法，钱包弹窗里的接收地址应为当前项目的 Mint 池。',
       amountBnb: formatBnbFromWei(valueWei, 8),
       valueWei: valueWei.toString(),
       receiver: deployment.pool,
@@ -1292,7 +1292,7 @@ function App() {
     setCheckout({
       type: 'contractAction',
       title: `写入白名单：${parsed.valid.length} 个地址`,
-      description: '这次会调用该 Apple Mint Vault 的 setWhitelistAccounts(address[], bool)。只有项目 Owner 钱包可以成功执行。',
+      description: '这次会调用该 Mint 池的白名单写入方法。只有项目 Owner 钱包可以成功执行。',
       amountBnb: '0',
       valueWei: '0',
       receiver: deployment.pool,
@@ -1317,7 +1317,7 @@ function App() {
     setCheckout({
       type: 'contractAction',
       title: enabled ? '开启白名单窗口' : '开启公开 Mint',
-      description: '这次会调用该 Apple Mint Vault 的 setWhitelistEnabled(bool)。只有项目 Owner 钱包可以成功执行。',
+      description: '这次会调用该 Mint 池的白名单窗口开关方法。只有项目 Owner 钱包可以成功执行。',
       amountBnb: '0',
       valueWei: '0',
       receiver: deployment.pool,
@@ -1355,7 +1355,7 @@ function App() {
     if (normalizeHexSuffix(form.vanitySuffix).length !== String(form.vanitySuffix || '').replace(/^0x/i, '').replace(/\s+/g, '').length) {
       return '尾号只能填写 0-9 / a-f 的十六进制字符';
     }
-    if (normalizeHexSuffix(form.vanitySuffix).length > 4) return 'Apple/Kaola 工厂尾号最多支持 4 位十六进制字符';
+    if (normalizeHexSuffix(form.vanitySuffix).length > 4) return '当前发币工厂尾号最多支持 4 位十六进制字符';
     if (form.owner.trim() && !isAddress(form.owner)) return '项目归属钱包地址格式不正确';
     const taxFields = [
       ['买税', form.buyTax],
@@ -1430,7 +1430,7 @@ function App() {
     setCheckout({
       type: 'factoryCreate',
       title: `创建发币项目：${form.tokenName || 'Pepe Token'}`,
-      description: '这次会调用 Apple/Kaola 发币工厂创建新的 AppleToken + AppleMintVault。请在钱包里核对工厂地址、创建费和网络。',
+      description: '这次会调用 PEPE 发币工厂创建新的代币和 Mint 池。请在钱包里核对工厂地址、创建费和网络。',
       amountBnb: formatBnbFromWei(totalValueWei, 8),
       valueWei: totalValueWei.toString(),
       actionLabel: form.whitelist ? '确认创建白名单Mint池' : '确认创建公开Mint池',
@@ -1441,7 +1441,7 @@ function App() {
         ['合约模板', selectedTemplate.name],
         ['模板ID', shortAddress(String(templateId))],
         ['链上动作', `创建${mintLaunchName}`],
-        ['创建方法', 'AppleToken + AppleMintVault，每笔 Mint 自动加池'],
+        ['创建方法', 'Token + Mint 池，每笔 Mint 自动加池'],
         ['代币总量', formatNumber(form.totalSupply, 0)],
         ['创建费', `${formatBnbFromWei(factoryFeeWei, 8)} BNB`],
         ['Mint单价', `${formatBnbFromWei(mintParams.price, 8)} BNB`],
@@ -1462,7 +1462,7 @@ function App() {
         ['LP接收', shortAddress(DEAD_ADDRESS)],
         ['尾号定制', suffix ? `...${suffix}` : '未指定'],
         ['Salt', suffix ? '确认时后端匹配' : form.vanitySalt ? shortAddress(saltToBytes32(form.vanitySalt)) : '确认时自动生成'],
-        ['权限', 'Token / Mint Vault Owner 给项目方，打满后 LP 进 dead'],
+        ['权限', 'Token / Mint池 Owner 给项目方，打满后 LP 进 dead'],
         ['接收钱包', form.owner && isAddress(form.owner) ? shortAddress(form.owner) : wallet.address ? shortAddress(wallet.address) : '确认时连接'],
         ['白名单', form.whitelist ? `${whitelistInfo.valid.length} 个地址 / ${mintParams.whiteLimit.toString()} 份` : '未开启'],
       ],
@@ -1472,7 +1472,7 @@ function App() {
   function submitLaunch(event) {
     event.preventDefault();
     if (form.mode !== 'direct' && form.mode !== 'mint') {
-      notify('当前发射模式未接入 Apple/Kaola 工厂，不能创建真实链上项目。');
+      notify('当前发射模式未接入 PEPE 发币工厂，不能创建真实链上项目。');
       return;
     }
     openFactoryPlanCheckout();
@@ -1847,7 +1847,7 @@ function TemplateSection({ selectedTemplate, selectTemplate, startLaunch }) {
     <section className="section-panel" id="templates">
       <SectionHead
         eyebrow="Contract Templates"
-        title="Apple/Kaola 参数模板"
+        title="PEPE 发币参数模板"
         text="这里只保留当前工厂真实支持的参数组合：标准、零税、黑洞底池、平台币分红和白名单 Mint 池。"
       />
       <div className="section-actions">
@@ -1921,7 +1921,7 @@ function ModeSection({ startLaunch }) {
             <p>{text}</p>
             <ul>
               {(id === 'direct'
-                ? ['设定总量与税率', '创建 AppleToken + MintVault', 'Mint 自动形成 dead LP']
+                ? ['设定总量与税率', '创建 Token + Mint池', 'Mint 自动形成 dead LP']
                 : ['设定 Mint 单价与份数', '每钱包上限与白名单', 'Mint BNB 自动组成底池']
               ).map((item) => (
                 <li key={item}>
@@ -2005,7 +2005,7 @@ function LaunchWorkbench({
             <div>
               <span className="eyebrow">Quick Launch</span>
               <h3>一页发币</h3>
-              <p>填核心信息后直接确认，复杂参数默认折叠，仍然走真实 Apple/Kaola 工厂。</p>
+              <p>填核心信息后直接确认，复杂参数默认折叠，仍然走真实 PEPE 发币工厂。</p>
             </div>
             <div className="quick-launch-status">
               <span className="status-pill green">尾号 ...{normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)}</span>
@@ -2284,7 +2284,7 @@ function LaunchWorkbench({
               <Rocket size={24} />
               <div>
                 <h3>{form.tokenName || 'Pepe Fighter'} 准备发射</h3>
-                <p>确认后会拉起真实钱包交易，创建 AppleToken + AppleMintVault。</p>
+                <p>确认后会拉起真实钱包交易，创建新币和 Mint 池。</p>
               </div>
             </div>
             <div className="live-mint-strip">
@@ -2405,8 +2405,8 @@ function LaunchWorkbench({
             ) : (
               <>
                 <div className="chain-status-row">
-                  <span className="status-pill green">AppleToken</span>
-                  <span className="status-pill green">MintVault</span>
+                  <span className="status-pill green">Token合约</span>
+                  <span className="status-pill green">Mint池</span>
                   <span className="status-pill green">LP进dead</span>
                   <span className="status-pill cyan">24小时退款窗口</span>
                 </div>
@@ -2636,7 +2636,7 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
     <Panel title="自助发币工厂" icon={Settings}>
       <div className="factory-status">
         <span className={`status-pill ${factoryReady ? 'green' : 'cyan'}`}>{factoryReady ? '工厂已部署' : '工厂准备中'}</span>
-        <span className="status-pill green">Apple/Kaola</span>
+        <span className="status-pill green">PEPE工厂</span>
         <span className="status-pill green">模板分页</span>
         <span className="status-pill green">CREATE2尾号</span>
         <span className="status-pill green">强制LP进dead</span>
@@ -2691,7 +2691,7 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
           </a>
         )}
       </div>
-      <p className="factory-note">发射工厂已切到 Apple/Kaola 合约：创建 AppleToken 与 AppleMintVault，支持白名单 Mint、每笔 Mint 自动加池、24 小时未满退款，以及全局链上分页查询。</p>
+      <p className="factory-note">发射工厂已接入真实链上合约：创建新币与 Mint 池，支持白名单 Mint、每笔 Mint 自动加池、24 小时未满退款，以及全局链上分页查询。</p>
     </Panel>
   );
 }
