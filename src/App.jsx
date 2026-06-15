@@ -79,7 +79,7 @@ const navItems = [
   { id: 'rules', label: '公平规则', icon: ShieldCheck },
   { id: 'templates', label: '模板协议', icon: FileCheck2 },
   { id: 'modes', label: '发射姿势', icon: Rocket },
-  { id: 'launch', label: '发新币', icon: Upload },
+  { id: 'launch', label: '部署新币', icon: Upload },
   { id: 'deployments', label: '部署列表', icon: ListChecks },
   { id: 'manifesto', label: '擂主宣言', icon: BadgeCheck },
 ];
@@ -1005,7 +1005,7 @@ function App() {
   async function mineVanitySalt() {
     const suffix = normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX);
     if (!suffix) {
-      notify('请先填写想要的合约尾号，例如 8888');
+      notify('请先确认想要的靓号尾号，例如 8888');
       return;
     }
     if (suffix.length > 4) {
@@ -1187,7 +1187,7 @@ function App() {
       vanityAttempts: vanity.vanityAttempts || 0,
       verifyQueued,
       verifyError,
-      actionLabel: form.whitelist ? '创建白名单Mint池' : '创建公开Mint池',
+      actionLabel: form.whitelist ? '部署白名单Mint池' : '部署公开Mint池',
     };
   }
 
@@ -1433,7 +1433,7 @@ function App() {
       description: '这次会调用 PEPE 发币工厂创建新的代币和 Mint 池。请在钱包里核对工厂地址、创建费和网络。',
       amountBnb: formatBnbFromWei(totalValueWei, 8),
       valueWei: totalValueWei.toString(),
-      actionLabel: form.whitelist ? '确认创建白名单Mint池' : '确认创建公开Mint池',
+      actionLabel: form.whitelist ? '确认部署白名单Mint池' : '确认部署公开Mint池',
       summary: [
         ['工厂状态', '真实链上创建交易'],
         ['工厂合约', shortAddress(FACTORY_CONTRACT)],
@@ -1595,6 +1595,7 @@ function App() {
               total={factoryRecordsCount}
               refreshFactoryRecords={refreshFactoryRecords}
               onSelectDeployment={setSelectedDeployment}
+              copyText={copyText}
               startLaunch={startLaunch}
             />
           )}
@@ -1618,6 +1619,7 @@ function App() {
           onRefund={openPoolRefundCheckout}
           onSetWhitelist={openPoolWhitelistCheckout}
           onSetWhitelistMode={openPoolWhitelistModeCheckout}
+          copyText={copyText}
           close={() => setSelectedDeployment(null)}
         />
       )}
@@ -1649,7 +1651,7 @@ function Topbar({ wallet, activePage, navigate, navigateToMint, connectWallet })
       <button className={`mobile-mint-row ${activePage === 'launch' ? 'active' : ''}`} onClick={navigateToMint} type="button">
         <Coins size={18} />
         <span>
-          <b>创建Mint池</b>
+          <b>部署新币</b>
           <small>{LAUNCH_FEE_BNB} 起 · 白名单 {WHITELIST_LAUNCH_FEE_BNB}</small>
         </span>
         <ChevronRight size={17} />
@@ -1721,7 +1723,7 @@ function Hero({ form, wallet, selectedMode, selectedTemplate, update, navigate, 
             </label>
             <label>
               <span>符号</span>
-              <input value={form.symbol} onChange={(event) => update('symbol', cleanSymbol(event.target.value))} placeholder="PEPE" />
+              <input className="uppercase-input" value={form.symbol} onChange={(event) => update('symbol', cleanSymbol(event.target.value))} placeholder="PEPE" />
             </label>
           </div>
           <div className="quick-receipt">
@@ -2023,7 +2025,7 @@ function LaunchWorkbench({
               <input value={form.tokenName} onChange={(event) => update('tokenName', event.target.value)} placeholder="Pepe Fighter" />
             </FormField>
             <FormField label="代币符号">
-              <input value={form.symbol} onChange={(event) => update('symbol', cleanSymbol(event.target.value))} placeholder="PEPE" />
+              <input className="uppercase-input" value={form.symbol} onChange={(event) => update('symbol', cleanSymbol(event.target.value))} placeholder="PEPE" />
             </FormField>
             <FormField label="代币总量">
               <input value={form.totalSupply} onChange={(event) => update('totalSupply', event.target.value)} inputMode="decimal" />
@@ -2047,7 +2049,7 @@ function LaunchWorkbench({
                     </button>
                   ))}
                 </div>
-                <small className="field-hint">底层合约：公平启动模板 · 模板ID 20</small>
+                <small className="field-hint">当前工厂真实支持：公平启动模板</small>
               </FormField>
             ) : (
               <FormField label="合约模板" wide>
@@ -2235,13 +2237,14 @@ function LaunchWorkbench({
                   <input value={form.burnRate} onChange={(event) => update('burnRate', event.target.value)} inputMode="decimal" />
                   <small className="field-hint">当前分配合计 {formatBnb(getTaxSplitTotal(form))}%</small>
                 </FormField>
-                <FormField label="合约尾号">
-                  <input
-                    value={normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX) || VANITY_SUFFIX}
-                    placeholder="例如 5555"
-                    readOnly
-                  />
-                  <small className="field-hint">当前工厂固定匹配尾号 ...{VANITY_SUFFIX}</small>
+                <FormField label="靓号尾号">
+                  <div className="vanity-lock-card">
+                    <span>
+                      <em>固定匹配</em>
+                      <b>...{normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX) || VANITY_SUFFIX}</b>
+                    </span>
+                    <small>当前工厂自动校验，部署时锁定尾号</small>
+                  </div>
                 </FormField>
                 <FormField label="CREATE2 Salt">
                   <div className="vanity-tools">
@@ -2317,7 +2320,7 @@ function LaunchWorkbench({
               )}
               <button className="primary" disabled={busy} type="submit">
                 <Coins size={16} />
-                {form.mode === 'mint' ? (form.whitelist ? '创建白名单Mint池' : '创建公开Mint池') : '登上擂台'}
+                {form.mode === 'mint' ? (form.whitelist ? '部署白名单Mint池' : '部署公开Mint池') : '部署新币'}
               </button>
             </div>
           </div>
@@ -2364,7 +2367,7 @@ function LaunchWorkbench({
             {form.whitelist && form.mode === 'mint' && <span className="status-pill green">白名单创建时写入新池</span>}
             <button className="primary full submit-btn" type="submit">
               <Coins size={16} />
-              {form.mode === 'mint' ? (form.whitelist ? '创建白名单Mint池' : '创建公开Mint池') : '登上擂台'}
+              {form.mode === 'mint' ? (form.whitelist ? '部署白名单Mint池' : '部署公开Mint池') : '部署新币'}
             </button>
           </Panel>
 
@@ -2374,6 +2377,7 @@ function LaunchWorkbench({
             selectedTemplate={selectedTemplate}
             update={update}
             setLaunchStep={setLaunchStep}
+            copyText={copyText}
           />
 
           <Panel title={form.mode === 'mint' ? (form.whitelist ? '白名单Mint池' : '公开Mint池') : '发币工厂参数'} icon={Coins}>
@@ -2514,7 +2518,7 @@ function LaunchWorkbench({
                 刷新
               </button>
             </div>
-            <DeploymentRecordsList records={factoryRecords.slice(0, 8)} compact onSelectDeployment={onSelectDeployment} />
+            <DeploymentRecordsList records={factoryRecords.slice(0, 8)} compact onSelectDeployment={onSelectDeployment} copyText={copyText} />
           </Panel>
         </aside>
       </form>
@@ -2526,7 +2530,7 @@ function deploymentKey(item) {
   return `${item.token || item.pool || item.creator}-${item.blockNumber}-${item.salt}`;
 }
 
-function DeploymentRecordsList({ records, compact = false, onSelectDeployment }) {
+function DeploymentRecordsList({ records, compact = false, onSelectDeployment, copyText }) {
   if (!records.length) {
     return <EmptyInline icon={Timer} title="新工厂暂无发币记录" text="只有通过本页面发币工厂创建成功的新币，才会写入这里；创建完成后会自动显示部署钱包、Token、Mint池和开源入口。" />;
   }
@@ -2534,16 +2538,17 @@ function DeploymentRecordsList({ records, compact = false, onSelectDeployment })
   return (
     <div className={`launch-records ${compact ? 'compact' : ''}`}>
       {records.map((item) => (
-        <DeploymentRecordCard item={item} key={deploymentKey(item)} compact={compact} onSelectDeployment={onSelectDeployment} />
+        <DeploymentRecordCard item={item} key={deploymentKey(item)} compact={compact} onSelectDeployment={onSelectDeployment} copyText={copyText} />
       ))}
     </div>
   );
 }
 
-function DeploymentRecordCard({ item, compact = false, onSelectDeployment }) {
+function DeploymentRecordCard({ item, compact = false, onSelectDeployment, copyText }) {
   const hasPool = isAddress(item.pool) && !sameAddress(item.pool, ZERO_ADDRESS);
   const hasPair = isAddress(item.pair) && !sameAddress(item.pair, ZERO_ADDRESS);
   const modeLabel = deploymentModeLabel(item.templateId, item.pool);
+  const marketAddress = hasPool ? item.pool : item.pair;
 
   return (
     <article className={`launch-record ${compact ? 'compact' : ''}`}>
@@ -2554,18 +2559,16 @@ function DeploymentRecordCard({ item, compact = false, onSelectDeployment }) {
       <div className="record-metrics">
         <small>
           <em>部署钱包</em>
-          <a href={addressUrl(item.creator)} target="_blank" rel="noreferrer">{shortAddress(item.creator)}</a>
+          <AddressCopy value={item.creator} label="部署钱包" copyText={copyText} />
         </small>
         <small>
           <em>Token</em>
-          <a href={addressUrl(item.token)} target="_blank" rel="noreferrer">{shortAddress(item.token)}</a>
+          <AddressCopy value={item.token} label="Token合约" copyText={copyText} />
         </small>
         {!compact && (
           <small>
             <em>{hasPool ? 'Mint池' : '交易对'}</em>
-            <a href={addressUrl(hasPool ? item.pool : item.pair)} target="_blank" rel="noreferrer">
-              {shortAddress(hasPool ? item.pool : item.pair) || '待生成'}
-            </a>
+            <AddressCopy value={marketAddress} label={hasPool ? 'Mint池' : '交易对'} copyText={copyText} fallback="待生成" />
           </small>
         )}
       </div>
@@ -2592,7 +2595,7 @@ function DeploymentRecordCard({ item, compact = false, onSelectDeployment }) {
   );
 }
 
-function DeploymentsPage({ records, total, refreshFactoryRecords, onSelectDeployment, startLaunch }) {
+function DeploymentsPage({ records, total, refreshFactoryRecords, onSelectDeployment, copyText, startLaunch }) {
   return (
     <section className="section-panel deployments-page" id="deployments">
       <SectionHead
@@ -2603,7 +2606,7 @@ function DeploymentsPage({ records, total, refreshFactoryRecords, onSelectDeploy
       <div className="section-actions">
         <button className="primary" onClick={() => startLaunch({ mode: 'mint', templateId: 'fair-mint', step: 'basic' })} type="button">
           <Rocket size={16} />
-          创建白名单Mint
+          部署白名单Mint
         </button>
         <button className="secondary" onClick={() => refreshFactoryRecords(false)} type="button">
           <Timer size={16} />
@@ -2613,6 +2616,10 @@ function DeploymentsPage({ records, total, refreshFactoryRecords, onSelectDeploy
           <ExternalLink size={16} />
           工厂合约
         </a>
+        <button className="secondary" onClick={() => copyText?.(FACTORY_CONTRACT, '工厂合约')} type="button">
+          <Copy size={16} />
+          复制工厂
+        </button>
       </div>
       <div className="deployment-stats">
         <MiniMetric label="链上总部署" value={`${total} 个`} />
@@ -2620,12 +2627,12 @@ function DeploymentsPage({ records, total, refreshFactoryRecords, onSelectDeploy
         <MiniMetric label="工厂地址" value={shortAddress(FACTORY_CONTRACT)} />
         <MiniMetric label="创建费" value={`普通 ${LAUNCH_FEE_BNB} / 白名单 ${WHITELIST_LAUNCH_FEE_BNB}`} />
       </div>
-      <DeploymentRecordsList records={records} onSelectDeployment={onSelectDeployment} />
+      <DeploymentRecordsList records={records} onSelectDeployment={onSelectDeployment} copyText={copyText} />
     </section>
   );
 }
 
-function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchStep }) {
+function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchStep, copyText }) {
   const factoryReady = isAddress(FACTORY_CONTRACT);
   const creator = form.owner && isAddress(form.owner) ? form.owner : wallet.address;
   const mintParams = getFairMintParams(form);
@@ -2689,6 +2696,12 @@ function FactoryBlueprint({ form, wallet, selectedTemplate, update, setLaunchSte
             <ExternalLink size={15} />
             工厂地址
           </a>
+        )}
+        {factoryReady && (
+          <button className="secondary" onClick={() => copyText?.(FACTORY_CONTRACT, '工厂合约')} type="button">
+            <Copy size={15} />
+            复制工厂
+          </button>
         )}
       </div>
       <p className="factory-note">发射工厂已接入真实链上合约：创建新币与 Mint 池，支持白名单 Mint、每笔 Mint 自动加池、24 小时未满退款，以及全局链上分页查询。</p>
@@ -2835,6 +2848,19 @@ function MiniMetric({ label, value }) {
   );
 }
 
+function AddressCopy({ value, label, copyText, fallback = '待生成' }) {
+  const canCopy = isAddress(value);
+  if (!canCopy) return <b>{fallback}</b>;
+  return (
+    <span className="address-copy">
+      <a href={addressUrl(value)} target="_blank" rel="noreferrer">{shortAddress(value)}</a>
+      <button onClick={() => copyText?.(value, label)} type="button" aria-label={`复制${label}`}>
+        <Copy size={13} />
+      </button>
+    </span>
+  );
+}
+
 function EmptyInline({ icon: Icon, title, text }) {
   return (
     <div className="empty-inline">
@@ -2855,7 +2881,7 @@ function FrogMark({ compact = false }) {
   );
 }
 
-function DeploymentDetailModal({ deployment, close, onMint, onRefund, onSetWhitelist, onSetWhitelistMode }) {
+function DeploymentDetailModal({ deployment, close, onMint, onRefund, onSetWhitelist, onSetWhitelistMode, copyText }) {
   const [mintQuantity, setMintQuantity] = useState('1');
   const [whitelistBatch, setWhitelistBatch] = useState('');
   const hasPool = isAddress(deployment.pool) && !sameAddress(deployment.pool, ZERO_ADDRESS);
@@ -2903,6 +2929,24 @@ function DeploymentDetailModal({ deployment, close, onMint, onRefund, onSetWhite
           ))}
         </div>
         <div className="deployment-links">
+          <button className="secondary" onClick={() => copyText?.(deployment.creator, '部署钱包')} type="button">
+            <Copy size={15} />
+            复制钱包
+          </button>
+          <button className="secondary" onClick={() => copyText?.(deployment.token, 'Token合约')} type="button">
+            <Copy size={15} />
+            复制Token
+          </button>
+          {hasPool && (
+            <button className="secondary" onClick={() => copyText?.(deployment.pool, 'Mint池')} type="button">
+              <Copy size={15} />
+              复制Mint池
+            </button>
+          )}
+          <button className="secondary" onClick={() => copyText?.(FACTORY_CONTRACT, '工厂合约')} type="button">
+            <Copy size={15} />
+            复制工厂
+          </button>
           <a className="secondary" href={addressUrl(deployment.creator)} target="_blank" rel="noreferrer">
             <ExternalLink size={15} />
             部署钱包
