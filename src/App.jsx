@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   ListChecks,
   LockKeyhole,
+  Menu,
   Rocket,
   Settings,
   ShieldCheck,
@@ -21,6 +22,7 @@ import {
   Upload,
   Users,
   Wallet,
+  X,
   XCircle,
   Zap,
 } from 'lucide-react';
@@ -848,6 +850,7 @@ function App() {
   const [factoryRecordsCount, setFactoryRecordsCount] = useState(0);
   const [selectedDeployment, setSelectedDeployment] = useState(null);
   const [vanityPreview, setVanityPreview] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const selectedTemplate = useMemo(
     () => templates.find((item) => item.id === form.templateId) || templates[0],
@@ -1021,11 +1024,13 @@ function App() {
   function navigateToPage(page) {
     if (!navItems.some((item) => item.id === page)) return;
     setActivePage(page);
+    setMenuOpen(false);
   }
 
   function navigateToMint() {
     setActivePage('launch');
     setLaunchStep('basic');
+    setMenuOpen(false);
   }
 
   function startLaunch(next = {}) {
@@ -1530,6 +1535,8 @@ function App() {
         navigate={navigateToPage}
         navigateToMint={navigateToMint}
         connectWallet={connectWallet}
+        menuOpen={menuOpen}
+        setMenuOpen={setMenuOpen}
       />
       <main className="shell page-shell">
         <div className="page-stage">
@@ -1597,7 +1604,7 @@ function App() {
   );
 }
 
-function Topbar({ wallet, activePage, navigate, navigateToMint, connectWallet }) {
+function Topbar({ wallet, activePage, navigate, navigateToMint, connectWallet, menuOpen, setMenuOpen }) {
   return (
     <header className="topbar">
       <button className="brand" onClick={() => navigate('launch')} type="button">
@@ -1609,13 +1616,29 @@ function Topbar({ wallet, activePage, navigate, navigateToMint, connectWallet })
           <small>BSC版公平发币工具</small>
         </span>
       </button>
-      <nav className="nav" aria-label="页面导航">
+      <button
+        className="menu-button"
+        type="button"
+        aria-label={menuOpen ? '收起菜单' : '展开菜单'}
+        onClick={() => setMenuOpen(!menuOpen)}
+      >
+        {menuOpen ? <X size={22} /> : <Menu size={22} />}
+      </button>
+      <nav className={menuOpen ? 'nav is-open' : 'nav'} aria-label="页面导航">
         {navItems.map(({ id, label, icon: Icon }) => (
           <button key={id} className={activePage === id ? 'active' : ''} onClick={() => navigate(id)} type="button">
             <Icon size={15} />
             {label}
           </button>
         ))}
+        <button className="deploy-nav" onClick={navigateToMint} type="button">
+          <Rocket size={16} />
+          部署
+        </button>
+        <button className="wallet-btn" onClick={connectWallet} type="button">
+          <Wallet size={17} />
+          {wallet.address ? shortAddress(wallet.address) : '连接钱包'}
+        </button>
       </nav>
       <button className={`mobile-mint-row ${activePage === 'launch' ? 'active' : ''}`} onClick={navigateToMint} type="button">
         <Coins size={18} />
@@ -1624,10 +1647,6 @@ function Topbar({ wallet, activePage, navigate, navigateToMint, connectWallet })
           <small>{LAUNCH_FEE_BNB} 起 · 白名单 {WHITELIST_LAUNCH_FEE_BNB}</small>
         </span>
         <ChevronRight size={17} />
-      </button>
-      <button className="wallet-btn" onClick={connectWallet} type="button">
-        <Wallet size={17} />
-        {wallet.address ? shortAddress(wallet.address) : '连接钱包'}
       </button>
     </header>
   );
