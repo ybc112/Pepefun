@@ -3298,3 +3298,170 @@ textarea:disabled {
     font-size: 25px;
   }
 }
+
+/* Additional concise pages and softer spacing. */
+.page-shell {
+  gap: 16px;
+}
+
+.nav {
+  min-width: min(100%, 520px);
+}
+
+.nav button {
+  min-width: 92px;
+  white-space: nowrap;
+}
+
+.section-panel {
+  padding: 20px;
+}
+
+.info-page {
+  display: grid;
+  gap: 14px;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.compact-info-grid {
+  margin-bottom: 14px;
+}
+
+.info-card,
+.community-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid rgba(126, 173, 161, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 16px;
+}
+
+.info-card svg,
+.community-card svg {
+  color: var(--cyan);
+}
+
+.info-card b,
+.community-card h3,
+.community-card span {
+  color: #f4fff5;
+}
+
+.info-card p,
+.community-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.rules-quick-panel {
+  background:
+    linear-gradient(180deg, rgba(11, 17, 18, 0.96), rgba(7, 11, 12, 0.96)),
+    linear-gradient(135deg, rgba(105, 214, 220, 0.06), transparent);
+}
+
+.community-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(320px, 1.05fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.main-community-card {
+  align-content: start;
+  min-height: 310px;
+  background:
+    linear-gradient(145deg, rgba(38, 104, 74, 0.16), rgba(105, 214, 220, 0.07)),
+    rgba(255, 255, 255, 0.035);
+}
+
+.community-badge {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border: 1px solid rgba(113, 232, 163, 0.34);
+  border-radius: 8px;
+  background: rgba(64, 214, 138, 0.09);
+}
+
+.community-card span {
+  color: var(--cyan);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.community-card h3 {
+  margin: 0;
+  font-size: 42px;
+  line-height: 1;
+}
+
+.community-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: auto;
+}
+
+.community-stack {
+  display: grid;
+  gap: 12px;
+}
+
+@media (max-width: 1180px) {
+  .topbar {
+    grid-template-columns: 1fr;
+  }
+
+  .brand,
+  .wallet-btn {
+    justify-self: stretch;
+  }
+
+  .nav {
+    justify-content: stretch;
+    min-width: 0;
+  }
+
+  .nav button {
+    flex: 1 1 0;
+  }
+
+  .community-layout,
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .section-panel {
+    padding: 14px;
+  }
+
+  .nav {
+    justify-content: flex-start;
+  }
+
+  .nav button {
+    flex: 0 0 auto;
+    min-width: auto;
+  }
+
+  .community-card h3 {
+    font-size: 34px;
+  }
+
+  .community-actions,
+  .community-actions .primary,
+  .community-actions .secondary {
+    width: 100%;
+  }
+}

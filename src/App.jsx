@@ -76,10 +76,13 @@ const BSC_CHAIN = {
 
 const navItems = [
   { id: 'launch', label: '部署新币', icon: Upload },
+  { id: 'rules', label: '发射规则', icon: ShieldCheck },
+  { id: 'community', label: '社区', icon: Users },
   { id: 'deployments', label: '部署列表', icon: ListChecks },
 ];
 
 const ACTIVE_TEMPLATE_ID = 'fair-mint';
+const QQ_GROUP = '868754196';
 
 const templates = [
   {
@@ -1551,6 +1554,8 @@ function App() {
               startLaunch={startLaunch}
             />
           )}
+          {activePage === 'rules' && <RulesPage startLaunch={startLaunch} navigate={navigateToPage} copyText={copyText} />}
+          {activePage === 'community' && <CommunityPage startLaunch={startLaunch} copyText={copyText} />}
         </div>
       </main>
       {checkout && (
@@ -1763,12 +1768,99 @@ function PrincipleSection() {
   );
 }
 
-function RulesPage() {
+function RulesPage({ startLaunch, navigate, copyText }) {
   return (
-    <>
+    <div className="info-page">
       <PrincipleSection />
       <FlowSection />
-    </>
+      <section className="section-panel rules-quick-panel">
+        <SectionHead
+          eyebrow="Before Launch"
+          title="发币前确认这几件事"
+          text="这里不是展示页，是发币前最后一遍核对。确认参数、钱包、尾号和社群入口，再去部署新币。"
+        />
+        <div className="info-grid compact-info-grid">
+          <article className="info-card">
+            <ShieldCheck size={21} />
+            <b>真实链上创建</b>
+            <p>点击部署后会调用当前 BSC 工厂合约，钱包里应显示工厂地址和创建费。</p>
+          </article>
+          <article className="info-card">
+            <Gauge size={21} />
+            <b>尾号固定 eeee</b>
+            <p>后端会为新 Token 匹配 CREATE2 Salt，工厂也会强制校验尾号。</p>
+          </article>
+          <article className="info-card">
+            <Users size={21} />
+            <b>社群同步</b>
+            <p>QQ群 {QQ_GROUP}，部署前后可以把合约、Mint 池和 BscScan 链接同步进去。</p>
+          </article>
+        </div>
+        <div className="section-actions">
+          <button className="primary" onClick={() => startLaunch({ step: 'basic' })} type="button">
+            <Rocket size={16} />
+            去部署新币
+          </button>
+          <button className="secondary" onClick={() => navigate('community')} type="button">
+            <Users size={16} />
+            查看社区
+          </button>
+          <button className="secondary" onClick={() => copyText?.(QQ_GROUP, 'QQ群号')} type="button">
+            <Copy size={16} />
+            复制QQ群
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function CommunityPage({ startLaunch, copyText }) {
+  return (
+    <section className="section-panel community-page" id="community">
+      <SectionHead
+        eyebrow="PEPE Community"
+        title="社区入口"
+        text="发币、开源验证、Mint 进度和部署记录都围绕这个入口同步，页面保持简单，方便复制和转发。"
+      />
+      <div className="community-layout">
+        <article className="community-card main-community-card">
+          <div className="community-badge">
+            <Users size={24} />
+          </div>
+          <span>QQ群</span>
+          <h3>{QQ_GROUP}</h3>
+          <p>部署前可以在群里同步名称、符号、白名单安排；部署后把 Token、Mint 池和 BscScan 链接发出来。</p>
+          <div className="community-actions">
+            <button className="primary" onClick={() => copyText?.(QQ_GROUP, 'QQ群号')} type="button">
+              <Copy size={16} />
+              复制QQ群
+            </button>
+            <button className="secondary" onClick={() => startLaunch({ step: 'basic' })} type="button">
+              <Rocket size={16} />
+              部署新币
+            </button>
+          </div>
+        </article>
+        <div className="community-stack">
+          <article className="info-card">
+            <ListChecks size={21} />
+            <b>部署记录</b>
+            <p>每个新币都会进入链上列表，方便社群核对部署钱包、Token 合约和 Mint 池。</p>
+          </article>
+          <article className="info-card">
+            <FileCheck2 size={21} />
+            <b>自动验源码</b>
+            <p>部署成功后后端会把 Token 加入验源码队列，让社区可以直接看源码。</p>
+          </article>
+          <article className="info-card">
+            <LockKeyhole size={21} />
+            <b>LP 进 dead</b>
+            <p>Mint 形成的底池按规则进入黑洞地址，页面和详情里都能复制核对。</p>
+          </article>
+        </div>
+      </div>
+    </section>
   );
 }
 
