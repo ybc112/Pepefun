@@ -7,14 +7,15 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "hardhat:compile": "hardhat compile",
-    "deploy:factory:bsc": "hardhat run scripts/deploy-factory.cjs --network bsc",
-    "deploy:factory:testnet": "hardhat run scripts/deploy-factory.cjs --network bscTestnet",
+    "hardhat:compile": "node scripts/compile-contracts.cjs",
+    "deploy:factory:bsc": "npm run hardhat:compile && hardhat run scripts/deploy-factory.cjs --network bsc --no-compile",
+    "deploy:factory:testnet": "npm run hardhat:compile && hardhat run scripts/deploy-factory.cjs --network bscTestnet --no-compile",
     "verify:factory:bsc": "hardhat verify --network bsc",
     "verify:factory:testnet": "hardhat verify --network bscTestnet",
     "deploy:cloudflare": "npm run build && npx wrangler pages deploy dist --project-name pepefun"
   },
   "dependencies": {
+    "@openzeppelin/contracts": "^5.6.1",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
@@ -26,6 +27,7 @@
     "dotenv": "^16.6.1",
     "ethers": "^6.16.0",
     "hardhat": "^2.28.6",
+    "solc": "^0.8.26",
     "vite": "^5.4.11"
   }
 }

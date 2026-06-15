@@ -2,9 +2,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const hre = require('hardhat');
 
-const DEFAULT_FEE_RECEIVER = '0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939';
+const DEFAULT_FEE_RECIPIENT = '0xF007f8Dd9037e9DD56B2953D8dA60cBc4B7FA939';
 const DEFAULT_PANCAKE_ROUTER = '0x10ED43C718714eb63d5aA57B78B54704E256024E';
-const DEFAULT_REWARD_TOKEN = '0xb3b2afb0de33d4d80a20839662bc99c6b360eeee';
+
+function privateKeyRequired() {
+  const liveNetwork = !['hardhat', 'localhost'].includes(hre.network.name);
+  if (liveNetwork && !process.env.PRIVATE_KEY) {
+    throw new Error('Missing PRIVATE_KEY in .env for live deployment.');
+  }
+}
 
 function readAddress(name, fallback) {
   const value = process.env[name] || fallback;
@@ -14,11 +20,15 @@ function readAddress(name, fallback) {
   return hre.ethers.getAddress(value);
 }
 
-function ensureDeployAccount() {
-  const needsPrivateKey = !['hardhat', 'localhost'].includes(hre.network.name);
-  if (needsPrivateKey && !process.env.PRIVATE_KEY) {
-    throw new Error('Missing PRIVATE_KEY in .env for live BSC deployment.');
+function parseRequiredSuffix() {
+  const value = String(process.env.REQUIRED_TOKEN_SUFFIX || process.env.VITE_VANITY_SUFFIX || 'aaaa')
+    .trim()
+    .replace(/^0x/i, '')
+    .toLowerCase();
+  if (!/^[0-9a-f]{1,4}$/.test(value)) {
+    throw new Error('REQUIRED_TOKEN_SUFFIX must be 1-4 hex characters.');
   }
+  return Number.parseInt(value, 16);
 }
 
 async function maybeVerify(address, constructorArguments, contract) {
@@ -30,147 +40,121 @@ async function maybeVerify(address, constructorArguments, contract) {
 
   const confirmations = Number(process.env.VERIFY_CONFIRMATIONS || '5');
   if (confirmations > 0) {
-    const provider = hre.ethers.provider;
-    const currentBlock = await provider.getBlockNumber();
-    const targetBlock = currentBlock + confirmations;
+    const startBlock = await hre.ethers.provider.getBlockNumber();
+    const targetBlock = startBlock + confirmations;
     console.log(`Waiting ${confirmations} blocks before verification...`);
-    while ((await provider.getBlockNumber()) < targetBlock) {
+    while ((await hre.ethers.provider.getBlockNumber()) < targetBlock) {
       await new Promise((resolve) => setTimeout(resolve, 8000));
     }
   }
 
-  const verifyArgs = {
+  await hre.run('verify:verify', {
     address,
     constructorArguments,
-  };
-  if (contract) verifyArgs.contract = contract;
-  await hre.run('verify:verify', verifyArgs);
+    contract,
+  });
 }
 
 async function main() {
-  ensureDeployAccount();
+  privateKeyRequired();
 
   const [deployer] = await hre.ethers.getSigners();
   if (!deployer) throw new Error('No deployer account available.');
 
-  const feeReceiver = readAddress('FACTORY_FEE_RECEIVER', DEFAULT_FEE_RECEIVER);
-  const pancakeRouter = readAddress('PANCAKE_ROUTER', DEFAULT_PANCAKE_ROUTER);
-  const defaultRewardToken = readAddress('DEFAULT_REWARD_TOKEN', DEFAULT_REWARD_TOKEN);
-  const creationFeeBnb = process.env.FACTORY_CREATION_FEE_BNB || '0.005';
-  const creationFeeWei = hre.ethers.parseEther(creationFeeBnb);
-  const whitelistCreationFeeBnb = process.env.FACTORY_WHITELIST_CREATION_FEE_BNB || '';
-  const whitelistCreationFeeWei = whitelistCreationFeeBnb ? hre.ethers.parseEther(whitelistCreationFeeBnb) : creationFeeWei * 2n;
+  const feeRecipient = readAddress('FACTORY_FEE_RECEIVER', process.env.FEE_RECIPIENT || DEFAULT_FEE_RECIPIENT);
+  const liquidityRouter = readAddress('PANCAKE_ROUTER', process.env.PANCAKE_V2_ROUTER_ADDRESS || DEFAULT_PANCAKE_ROUTER);
+  const creationFeeBnb = process.env.FACTORY_CREATION_FEE_BNB || process.env.CREATION_FEE_BNB || '0.005';
+  const creationFee = hre.ethers.parseEther(creationFeeBnb);
+  const requiredTokenSuffix = parseRequiredSuffix();
 
   console.log(`Network: ${hre.network.name}`);
   console.log(`Deployer: ${deployer.address}`);
-  console.log(`Fee receiver: ${feeReceiver}`);
-  console.log(`Creation fee: ${creationFeeBnb} BNB (${creationFeeWei.toString()} wei)`);
-  console.log(`Whitelist creation fee: ${hre.ethers.formatEther(whitelistCreationFeeWei)} BNB (${whitelistCreationFeeWei.toString()} wei)`);
-  console.log(`Pancake Router: ${pancakeRouter}`);
-  console.log(`Default reward token: ${defaultRewardToken}`);
+  console.log(`Fee recipient: ${feeRecipient}`);
+  console.log(`Liquidity router: ${liquidityRouter}`);
+  console.log(`Creation fee: ${creationFeeBnb} BNB (${creationFee.toString()} wei)`);
+  console.log(`Required token suffix: 0x${requiredTokenSuffix.toString(16).padStart(4, '0')}`);
 
-  const FairMintPool = await hre.ethers.getContractFactory('FairMintPool');
-  const fairMintPoolImplementation = await FairMintPool.deploy();
-  await fairMintPoolImplementation.waitForDeployment();
-  const fairMintPoolImplementationAddress = await fairMintPoolImplementation.getAddress();
-  const fairMintDeploymentTx = fairMintPoolImplementation.deploymentTransaction();
-  console.log(`FairMintPool implementation deployed: ${fairMintPoolImplementationAddress}`);
-  console.log(`FairMintPool tx: ${fairMintDeploymentTx?.hash || ''}`);
+  const AppleTokenDeployer = await hre.ethers.getContractFactory('AppleTokenDeployer');
+  const tokenDeployer = await AppleTokenDeployer.deploy();
+  await tokenDeployer.waitForDeployment();
+  const tokenDeployerAddress = await tokenDeployer.getAddress();
+  const tokenDeployerTx = tokenDeployer.deploymentTransaction();
+  console.log(`AppleTokenDeployer deployed: ${tokenDeployerAddress}`);
 
-  const DividendMemeToken = await hre.ethers.getContractFactory('DividendMemeToken');
-  const dividendTokenImplementation = await DividendMemeToken.deploy();
-  await dividendTokenImplementation.waitForDeployment();
-  const dividendTokenImplementationAddress = await dividendTokenImplementation.getAddress();
-  const dividendDeploymentTx = dividendTokenImplementation.deploymentTransaction();
-  console.log(`DividendMemeToken implementation deployed: ${dividendTokenImplementationAddress}`);
-  console.log(`DividendMemeToken tx: ${dividendDeploymentTx?.hash || ''}`);
+  const AppleMintVaultDeployer = await hre.ethers.getContractFactory('AppleMintVaultDeployer');
+  const vaultDeployer = await AppleMintVaultDeployer.deploy();
+  await vaultDeployer.waitForDeployment();
+  const vaultDeployerAddress = await vaultDeployer.getAddress();
+  const vaultDeployerTx = vaultDeployer.deploymentTransaction();
+  console.log(`AppleMintVaultDeployer deployed: ${vaultDeployerAddress}`);
 
-  const PepeLaunchFactory = await hre.ethers.getContractFactory('PepeLaunchFactory');
-  const factory = await PepeLaunchFactory.deploy(
-    feeReceiver,
-    creationFeeWei,
-    pancakeRouter,
-    defaultRewardToken,
-    fairMintPoolImplementationAddress,
-    dividendTokenImplementationAddress,
+  const AppleLaunchFactory = await hre.ethers.getContractFactory('AppleLaunchFactory');
+  const factory = await AppleLaunchFactory.deploy(
+    feeRecipient,
+    creationFee,
+    liquidityRouter,
+    tokenDeployerAddress,
+    vaultDeployerAddress,
+    requiredTokenSuffix,
   );
   await factory.waitForDeployment();
+  const factoryAddress = await factory.getAddress();
+  const factoryTx = factory.deploymentTransaction();
+  console.log(`AppleLaunchFactory deployed: ${factoryAddress}`);
 
-  const address = await factory.getAddress();
-  const deploymentTx = factory.deploymentTransaction();
-  console.log(`PepeLaunchFactory deployed: ${address}`);
-  console.log(`Deployment tx: ${deploymentTx?.hash || ''}`);
-
-  if (whitelistCreationFeeWei !== creationFeeWei * 2n) {
-    const feeTx = await factory.setWhitelistCreationFee(whitelistCreationFeeWei);
-    await feeTx.wait();
-    console.log(`Whitelist creation fee updated tx: ${feeTx.hash}`);
-  }
+  await (await tokenDeployer.setFactory(factoryAddress)).wait();
+  await (await vaultDeployer.setFactory(factoryAddress)).wait();
+  console.log('Deployers bound to factory.');
 
   const constructorArguments = [
-    feeReceiver,
-    creationFeeWei.toString(),
-    pancakeRouter,
-    defaultRewardToken,
-    fairMintPoolImplementationAddress,
-    dividendTokenImplementationAddress,
+    feeRecipient,
+    creationFee.toString(),
+    liquidityRouter,
+    tokenDeployerAddress,
+    vaultDeployerAddress,
+    requiredTokenSuffix,
   ];
+
   const deploymentRecord = {
     network: hre.network.name,
     chainId: Number((await hre.ethers.provider.getNetwork()).chainId),
-    contract: 'PepeLaunchFactory',
-    address,
-    deploymentTx: deploymentTx?.hash || '',
-    implementations: {
-      fairMintPool: {
-        contract: 'FairMintPool',
-        address: fairMintPoolImplementationAddress,
-        deploymentTx: fairMintDeploymentTx?.hash || '',
-      },
-      dividendMemeToken: {
-        contract: 'DividendMemeToken',
-        address: dividendTokenImplementationAddress,
-        deploymentTx: dividendDeploymentTx?.hash || '',
-      },
-    },
+    contract: 'AppleLaunchFactory',
+    factory: factoryAddress,
+    tokenDeployer: tokenDeployerAddress,
+    vaultDeployer: vaultDeployerAddress,
+    feeRecipient,
+    liquidityRouter,
+    creationFeeWei: creationFee.toString(),
+    creationFeeBnb: hre.ethers.formatEther(creationFee),
+    requiredTokenSuffix: `0x${requiredTokenSuffix.toString(16).padStart(4, '0')}`,
+    deploymentTx: factoryTx?.hash || '',
+    tokenDeployerDeploymentTx: tokenDeployerTx?.hash || '',
+    vaultDeployerDeploymentTx: vaultDeployerTx?.hash || '',
     deployer: deployer.address,
     constructorArguments,
-    feeReceiver,
-    creationFeeWei: creationFeeWei.toString(),
-    whitelistCreationFeeWei: whitelistCreationFeeWei.toString(),
-    pancakeRouter,
-    defaultRewardToken,
     deployedAt: new Date().toISOString(),
-    verifyCommand: `npx hardhat verify --network ${hre.network.name} ${address} ${constructorArguments.join(' ')}`,
+    verifyCommand: `npx hardhat verify --network ${hre.network.name} ${factoryAddress} ${constructorArguments.join(' ')}`,
   };
 
   const outputDir = path.join(process.cwd(), 'deployments');
   fs.mkdirSync(outputDir, { recursive: true });
-  const outputPath = path.join(outputDir, `${hre.network.name}-PepeLaunchFactory.json`);
+  const outputPath = path.join(outputDir, `${hre.network.name}-AppleLaunchFactory.json`);
   fs.writeFileSync(outputPath, `${JSON.stringify(deploymentRecord, null, 2)}\n`);
   console.log(`Saved deployment record: ${outputPath}`);
 
+  await maybeVerify(tokenDeployerAddress, [], 'contracts/AppleLaunchDeployers.sol:AppleTokenDeployer');
+  await maybeVerify(vaultDeployerAddress, [], 'contracts/AppleLaunchDeployers.sol:AppleMintVaultDeployer');
   await maybeVerify(
-    fairMintPoolImplementationAddress,
-    [],
-    'contracts/templates/FairMintPool.sol:FairMintPool',
-  );
-  await maybeVerify(
-    dividendTokenImplementationAddress,
-    [],
-    'contracts/templates/DividendMemeToken.sol:DividendMemeToken',
-  );
-  await maybeVerify(
-    address,
+    factoryAddress,
     [
-      feeReceiver,
-      creationFeeWei,
-      pancakeRouter,
-      defaultRewardToken,
-      fairMintPoolImplementationAddress,
-      dividendTokenImplementationAddress,
+      feeRecipient,
+      creationFee,
+      liquidityRouter,
+      tokenDeployerAddress,
+      vaultDeployerAddress,
+      requiredTokenSuffix,
     ],
-    'contracts/PepeLaunchFactory.sol:PepeLaunchFactory',
+    'contracts/AppleLaunchFactory.sol:AppleLaunchFactory',
   );
 }
 

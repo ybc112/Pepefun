@@ -10,14 +10,19 @@ function privateKeyAccounts() {
 
 module.exports = {
   solidity: {
-    version: '0.8.20',
-    settings: {
-      viaIR: true,
-      optimizer: {
-        enabled: true,
-        runs: 1,
+    compilers: [
+      {
+        version: '0.8.26',
+        preferWasm: true,
+        settings: {
+          viaIR: true,
+          optimizer: {
+            enabled: true,
+            runs: 1,
+          },
+        },
       },
-    },
+    ],
   },
   networks: {
     hardhat: {},
