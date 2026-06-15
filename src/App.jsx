@@ -193,14 +193,6 @@ const factoryFlow = [
   ['04', '失败退款', '未打满且超过退款窗口后，用户可手动退回可退余额。'],
 ];
 
-const launchWizardSteps = [
-  { id: 'mode', label: '模式', title: '发射模式' },
-  { id: 'basic', label: '基础', title: '基础信息' },
-  { id: 'params', label: '参数', title: '发射参数' },
-  { id: 'rules', label: '白名单', title: '白名单与规则' },
-  { id: 'preview', label: '预览', title: '确认发射' },
-];
-
 const defaultForm = {
   mode: 'mint',
   templateId: 'fair-mint',
@@ -284,7 +276,8 @@ function loadDraft() {
         ...saved.form,
         mode: savedMode,
         templateId: savedTemplateId,
-        vanitySuffix: normalizeHexSuffix(saved.form?.vanitySuffix || defaultForm.vanitySuffix),
+        vanitySuffix: VANITY_SUFFIX,
+        vanitySalt: '',
         deadLiquidity: true,
       };
     }
@@ -862,10 +855,6 @@ function pageIndex(page) {
   return Math.max(0, navItems.findIndex((item) => item.id === page));
 }
 
-function launchStepIndex(step) {
-  return Math.max(0, launchWizardSteps.findIndex((item) => item.id === step));
-}
-
 function App() {
   const [activePage, setActivePage] = useState(pageFromHash);
   const [launchStep, setLaunchStep] = useState('basic');
@@ -956,6 +945,10 @@ function App() {
   function update(field, value) {
     if (field === 'deadLiquidity') {
       setForm((current) => ({ ...current, [field]: true }));
+      return;
+    }
+    if (field === 'vanitySuffix') {
+      setForm((current) => ({ ...current, vanitySuffix: VANITY_SUFFIX, vanitySalt: '' }));
       return;
     }
     if (field === 'mode') {
@@ -1978,17 +1971,25 @@ function LaunchWorkbench({
   onSelectDeployment,
   busy,
 }) {
-  const currentStepIndex = launchStepIndex(launchStep);
-  const previousStep = launchWizardSteps[currentStepIndex - 1];
-  const nextStep = launchWizardSteps[currentStepIndex + 1];
+  const [advancedOpen, setAdvancedOpen] = useState(launchStep === 'rules' || launchStep === 'preview');
   const whitelistInfo = parseWhitelist(form.whitelistAddresses);
   const tokenSymbol = form.symbol || 'PEPE';
   const mintParams = getFairMintParams(form);
   const selectedMintPlaybook = form.whitelist ? 'whitelist' : 'public';
 
+  useEffect(() => {
+    if (launchStep === 'rules' || launchStep === 'preview') setAdvancedOpen(true);
+  }, [launchStep]);
+
   function chooseMintPlaybook(playbook) {
     update('templateId', 'fair-mint');
     update('whitelist', playbook.whitelist);
+  }
+
+  function toggleAdvanced() {
+    const nextOpen = !advancedOpen;
+    setAdvancedOpen(nextOpen);
+    setLaunchStep(nextOpen ? 'rules' : 'basic');
   }
 
   return (
@@ -1996,59 +1997,65 @@ function LaunchWorkbench({
       <SectionHead
         eyebrow="Launch Console"
         title="登上你的擂台"
-        text="按步骤配置发射模式、基础信息、参数和规则，最后预览并拉起真实钱包交易。"
+        text="核心参数集中填写，高级税率、靓号尾号和自动验源码保留在同一个真实发币流程里。"
       />
       <form className="launch-workbench" onSubmit={submitLaunch}>
-        <div className="launch-main paged-form">
-          <LaunchStepper value={launchStep} onChange={setLaunchStep} />
+        <div className="launch-main quick-launch-main">
+          <div className="quick-launch-hero">
+            <div>
+              <span className="eyebrow">Quick Launch</span>
+              <h3>一页发币</h3>
+              <p>填核心信息后直接确认，复杂参数默认折叠，仍然走真实 Apple/Kaola 工厂。</p>
+            </div>
+            <div className="quick-launch-status">
+              <span className="status-pill green">尾号 ...{normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)}</span>
+              <span className="status-pill green">自动验源码 {form.autoVerify ? '开' : '关'}</span>
+              <span className="status-pill cyan">{form.whitelist ? '白名单Mint' : '公开Mint'}</span>
+            </div>
+          </div>
 
-          {launchStep === 'mode' && (
-            <fieldset className="wizard-fieldset">
-              <legend>发射模式</legend>
-              <ModeCards value={form.mode} onChange={(value) => update('mode', value)} />
-            </fieldset>
-          )}
-
-          {launchStep === 'basic' && (
-            <fieldset className="wizard-fieldset">
-              <legend>基础信息</legend>
-              <FormField label="代币名称">
-                <input value={form.tokenName} onChange={(event) => update('tokenName', event.target.value)} placeholder="Pepe Fighter" />
+          <fieldset className="wizard-fieldset quick-fieldset">
+            <legend>基础信息</legend>
+            <FormField label="发射模式" wide>
+              <ModeToggle value={form.mode} onChange={(value) => update('mode', value)} />
+            </FormField>
+            <FormField label="代币名称">
+              <input value={form.tokenName} onChange={(event) => update('tokenName', event.target.value)} placeholder="Pepe Fighter" />
+            </FormField>
+            <FormField label="代币符号">
+              <input value={form.symbol} onChange={(event) => update('symbol', cleanSymbol(event.target.value))} placeholder="PEPE" />
+            </FormField>
+            <FormField label="代币总量">
+              <input value={form.totalSupply} onChange={(event) => update('totalSupply', event.target.value)} inputMode="decimal" />
+            </FormField>
+            <FormField label="项目归属钱包">
+              <input value={form.owner} onChange={(event) => update('owner', event.target.value)} placeholder={wallet.address || '0x...'} />
+            </FormField>
+            {form.mode === 'mint' ? (
+              <FormField label="Mint玩法" wide>
+                <div className="template-picker mint-playbook-picker">
+                  {mintPlaybooks.map((playbook) => (
+                    <button
+                      className={selectedMintPlaybook === playbook.id ? 'active' : ''}
+                      key={playbook.id}
+                      onClick={() => chooseMintPlaybook(playbook)}
+                      type="button"
+                    >
+                      <span>{playbook.name}</span>
+                      <small>{playbook.tag}</small>
+                      <em>{playbook.text}</em>
+                    </button>
+                  ))}
+                </div>
+                <small className="field-hint">底层合约：公平启动模板 · 模板ID 20</small>
               </FormField>
-              <FormField label="代币符号">
-                <input value={form.symbol} onChange={(event) => update('symbol', cleanSymbol(event.target.value))} placeholder="PEPE" />
-              </FormField>
-              <FormField label="代币总量">
-                <input value={form.totalSupply} onChange={(event) => update('totalSupply', event.target.value)} inputMode="decimal" />
-              </FormField>
-              <FormField label="项目归属钱包">
-                <input value={form.owner} onChange={(event) => update('owner', event.target.value)} placeholder={wallet.address || '0x...'} />
-              </FormField>
-              {form.mode === 'mint' ? (
-                <FormField label="Mint玩法" wide>
-                  <div className="template-picker mint-playbook-picker">
-                    {mintPlaybooks.map((playbook) => (
-                      <button
-                        className={selectedMintPlaybook === playbook.id ? 'active' : ''}
-                        key={playbook.id}
-                        onClick={() => chooseMintPlaybook(playbook)}
-                        type="button"
-                      >
-                        <span>{playbook.name}</span>
-                        <small>{playbook.tag}</small>
-                        <em>{playbook.text}</em>
-                      </button>
-                    ))}
-                  </div>
-                  <small className="field-hint">底层合约：公平启动模板 · 模板ID 20</small>
-                </FormField>
-              ) : (
-                <FormField label="合约模板" wide>
-                  <div className="template-picker">
-                    {templates
-                      .filter((template) => template.deployable)
-                      .filter((template) => template.id !== 'fair-mint')
-                      .map((template) => (
+            ) : (
+              <FormField label="合约模板" wide>
+                <div className="template-picker">
+                  {templates
+                    .filter((template) => template.deployable)
+                    .filter((template) => template.id !== 'fair-mint')
+                    .map((template) => (
                       <button
                         className={form.templateId === template.id ? 'active' : ''}
                         key={template.id}
@@ -2059,269 +2066,262 @@ function LaunchWorkbench({
                         <small>{template.tag}</small>
                       </button>
                     ))}
-                  </div>
-                </FormField>
-              )}
-              <FormField label="Pepe风格Logo" wide>
-                <div className="logo-uploader">
-                  <label>
-                    <Upload size={16} />
-                    上传 Logo
-                    <input accept="image/*" onChange={handleLogoUpload} type="file" />
-                  </label>
-                  <div className="logo-preview">
-                    {form.logoData ? <img alt="代币 Logo 预览" src={form.logoData} /> : <FrogMark />}
-                  </div>
                 </div>
               </FormField>
-            </fieldset>
-          )}
+            )}
+            <FormField label="Pepe风格Logo" wide>
+              <div className="logo-uploader">
+                <label>
+                  <Upload size={16} />
+                  上传 Logo
+                  <input accept="image/*" onChange={handleLogoUpload} type="file" />
+                </label>
+                <div className="logo-preview">
+                  {form.logoData ? <img alt="代币 Logo 预览" src={form.logoData} /> : <FrogMark />}
+                </div>
+              </div>
+            </FormField>
+          </fieldset>
 
-          {launchStep === 'params' && (
-            <fieldset className="wizard-fieldset">
-              <legend>Apple Mint Vault 参数</legend>
-              <FormField label="每份支付 BNB">
-                <input value={form.mintPrice} onChange={(event) => update('mintPrice', event.target.value)} inputMode="decimal" />
+          <fieldset className="wizard-fieldset quick-fieldset">
+            <legend>Mint参数</legend>
+            <FormField label="每份支付 BNB">
+              <input value={form.mintPrice} onChange={(event) => update('mintPrice', event.target.value)} inputMode="decimal" />
+            </FormField>
+            <FormField label="每份获得代币">
+              <input value={formatUnits(mintParams.amountPerMint, 18, 4)} disabled readOnly />
+            </FormField>
+            <FormField label="Mint 总份数">
+              <input value={form.mintSlots} onChange={(event) => update('mintSlots', event.target.value)} inputMode="decimal" />
+            </FormField>
+            {form.whitelist && (
+              <FormField label="白名单总份数">
+                <input value={form.whiteMintSlots} onChange={(event) => update('whiteMintSlots', event.target.value)} inputMode="decimal" />
               </FormField>
-              <FormField label="每份获得代币">
-                <input value={formatUnits(mintParams.amountPerMint, 18, 4)} disabled readOnly />
-                <small className="field-hint">Apple Vault 按总量自动计算：50% 用于 Mint，50% 作为每笔加池储备。</small>
+            )}
+            <FormField label="每钱包上限">
+              <input value={form.maxPerWallet} onChange={(event) => update('maxPerWallet', event.target.value)} inputMode="decimal" />
+            </FormField>
+            <FormField label="本次 Mint 数量">
+              <input
+                min="1"
+                type="number"
+                value={form.mintQuantity}
+                onChange={(event) => update('mintQuantity', event.target.value)}
+                inputMode="numeric"
+              />
+            </FormField>
+            <div className="fixed-rule-strip">
+              <span>
+                <ShieldCheck size={15} />
+                <b>每笔加池</b>
+                <em>BNB 100% / 代币 50%</em>
+              </span>
+              <span>
+                <LockKeyhole size={15} />
+                <b>LP黑洞</b>
+                <em>{shortAddress(DEAD_ADDRESS)}</em>
+              </span>
+              <span>
+                <Timer size={15} />
+                <b>退款窗口</b>
+                <em>24 小时</em>
+              </span>
+            </div>
+            <ToggleField
+              checked
+              disabled
+              label="底池自动转 dead"
+              text="初始 LP 或 Mint 累积 LP 全部进入黑洞地址。"
+              onChange={(value) => update('deadLiquidity', value)}
+            />
+            <ToggleField
+              checked={form.whitelist}
+              label="开启白名单窗口"
+              text="开启后只有名单内钱包可在白名单窗口 Mint 或提前参与。"
+              onChange={(value) => update('whitelist', value)}
+            />
+            {form.whitelist && (
+              <FormField label="白名单钱包地址" wide>
+                <div className="whitelist-editor">
+                  <textarea
+                    value={form.whitelistAddresses}
+                    onChange={(event) => update('whitelistAddresses', event.target.value)}
+                    placeholder={'每行一个地址，也支持逗号/空格分隔\n0x...\n0x...'}
+                  />
+                  <div className="whitelist-tools">
+                    <span className="status-pill green">{whitelistInfo.valid.length} 个有效地址</span>
+                    <span className={`status-pill ${whitelistInfo.invalid.length ? 'red' : 'cyan'}`}>
+                      {whitelistInfo.invalid.length ? `${whitelistInfo.invalid.length} 个错误` : '格式正常'}
+                    </span>
+                    {wallet.address && (
+                      <button
+                        className="secondary"
+                        onClick={() => update('whitelistAddresses', appendWhitelistAddress(form.whitelistAddresses, wallet.address))}
+                        type="button"
+                      >
+                        <Wallet size={15} />
+                        加入当前钱包
+                      </button>
+                    )}
+                    <span className="status-pill green">创建时写入新池</span>
+                    <button className="secondary" onClick={() => update('whitelistAddresses', '')} type="button">
+                      清空名单
+                    </button>
+                  </div>
+                  {whitelistInfo.invalid.length > 0 && (
+                    <div className="invalid-list">
+                      <b>格式错误：</b>
+                      <span>{whitelistInfo.invalid.slice(0, 6).join('、')}</span>
+                    </div>
+                  )}
+                </div>
               </FormField>
-              <FormField label="Mint 总份数">
-                <input value={form.mintSlots} onChange={(event) => update('mintSlots', event.target.value)} inputMode="decimal" />
-              </FormField>
-              {form.whitelist && (
-                <FormField label="白名单总份数">
-                  <input value={form.whiteMintSlots} onChange={(event) => update('whiteMintSlots', event.target.value)} inputMode="decimal" />
+            )}
+          </fieldset>
+
+          <div className={`advanced-shell ${advancedOpen ? 'open' : ''}`}>
+            <button className="advanced-toggle" onClick={toggleAdvanced} type="button" aria-expanded={advancedOpen}>
+              <SlidersHorizontal size={16} />
+              <span>
+                <b>高级配置</b>
+                <em>税率、靓号 Salt、自动验源码和社群资料</em>
+              </span>
+              <ChevronRight className="advanced-chevron" size={16} />
+            </button>
+            {advancedOpen && (
+              <fieldset className="wizard-fieldset quick-fieldset advanced-fieldset">
+                <legend>高级配置</legend>
+                <FormField label="买税 %">
+                  <input value={form.buyTax} onChange={(event) => update('buyTax', event.target.value)} inputMode="decimal" />
                 </FormField>
-              )}
-              <FormField label="每钱包上限">
-                <input value={form.maxPerWallet} onChange={(event) => update('maxPerWallet', event.target.value)} inputMode="decimal" />
-              </FormField>
-              <FormField label="本次 Mint 数量">
-                <input
-                  min="1"
-                  type="number"
-                  value={form.mintQuantity}
-                  onChange={(event) => update('mintQuantity', event.target.value)}
-                  inputMode="numeric"
-                />
-              </FormField>
-              <FormField label="BNB进池比例%">
-                <input value="100" disabled readOnly />
-                <small className="field-hint">Apple Vault 固定每笔 Mint 支付 100% 自动加池。</small>
-              </FormField>
-              <FormField label="代币配池比例%">
-                <input value="50" disabled readOnly />
-                <small className="field-hint">Apple Vault 固定预留总量 50% 作为配池代币储备。</small>
-              </FormField>
-              <FormField label="手动退款窗口">
-                <input value="24 小时" disabled readOnly />
-                <small className="field-hint">Mint 未满且超过 24 小时后，用户可调用 claimRefund()。</small>
-              </FormField>
-            </fieldset>
-          )}
-
-          {launchStep === 'rules' && (
-            <fieldset className="wizard-fieldset">
-              <legend>税率、权限与社群</legend>
-              <FormField label="买税 %">
-                <input value={form.buyTax} onChange={(event) => update('buyTax', event.target.value)} inputMode="decimal" />
-              </FormField>
-              <FormField label="卖税 %">
-                <input value={form.sellTax} onChange={(event) => update('sellTax', event.target.value)} inputMode="decimal" />
-              </FormField>
-              <FormField label="转账税 %">
-                <input value={form.transferTax} onChange={(event) => update('transferTax', event.target.value)} inputMode="decimal" />
-              </FormField>
-              <FormField label="加池税 %">
-                <input value={form.addLiquidityTax} onChange={(event) => update('addLiquidityTax', event.target.value)} inputMode="decimal" />
-              </FormField>
-              <FormField label="撤池税 %">
-                <input value={form.removeLiquidityTax} onChange={(event) => update('removeLiquidityTax', event.target.value)} inputMode="decimal" />
-              </FormField>
-              <FormField label="开盘保护税 %">
-                <input value={form.launchProtectionTax} onChange={(event) => update('launchProtectionTax', event.target.value)} inputMode="decimal" />
-              </FormField>
-              <FormField label="保护区块">
-                <input value={form.launchProtectionBlocks} onChange={(event) => update('launchProtectionBlocks', event.target.value)} inputMode="numeric" />
-              </FormField>
-              <FormField label="分红等待秒">
-                <input value={form.claimWaitSeconds} onChange={(event) => update('claimWaitSeconds', event.target.value)} inputMode="numeric" />
-              </FormField>
-              <FormField label="营销分配 %">
-                <input value={form.fundFeePercent} onChange={(event) => update('fundFeePercent', event.target.value)} inputMode="decimal" />
-              </FormField>
-              <FormField label="LP分配 %">
-                <input value={form.lpFeePercent} onChange={(event) => update('lpFeePercent', event.target.value)} inputMode="decimal" />
-              </FormField>
-              <FormField label="分红分配 %">
-                <input value={form.dividendFeePercent} onChange={(event) => update('dividendFeePercent', event.target.value)} inputMode="decimal" />
-              </FormField>
-              {isDividendTemplate(form.templateId) && (
-                <>
+                <FormField label="卖税 %">
+                  <input value={form.sellTax} onChange={(event) => update('sellTax', event.target.value)} inputMode="decimal" />
+                </FormField>
+                <FormField label="转账税 %">
+                  <input value={form.transferTax} onChange={(event) => update('transferTax', event.target.value)} inputMode="decimal" />
+                </FormField>
+                <FormField label="加池税 %">
+                  <input value={form.addLiquidityTax} onChange={(event) => update('addLiquidityTax', event.target.value)} inputMode="decimal" />
+                </FormField>
+                <FormField label="撤池税 %">
+                  <input value={form.removeLiquidityTax} onChange={(event) => update('removeLiquidityTax', event.target.value)} inputMode="decimal" />
+                </FormField>
+                <FormField label="开盘保护税 %">
+                  <input value={form.launchProtectionTax} onChange={(event) => update('launchProtectionTax', event.target.value)} inputMode="decimal" />
+                </FormField>
+                <FormField label="保护区块">
+                  <input value={form.launchProtectionBlocks} onChange={(event) => update('launchProtectionBlocks', event.target.value)} inputMode="numeric" />
+                </FormField>
+                <FormField label="分红等待秒">
+                  <input value={form.claimWaitSeconds} onChange={(event) => update('claimWaitSeconds', event.target.value)} inputMode="numeric" />
+                </FormField>
+                <FormField label="营销分配 %">
+                  <input value={form.fundFeePercent} onChange={(event) => update('fundFeePercent', event.target.value)} inputMode="decimal" />
+                </FormField>
+                <FormField label="LP分配 %">
+                  <input value={form.lpFeePercent} onChange={(event) => update('lpFeePercent', event.target.value)} inputMode="decimal" />
+                </FormField>
+                <FormField label="分红分配 %">
+                  <input value={form.dividendFeePercent} onChange={(event) => update('dividendFeePercent', event.target.value)} inputMode="decimal" />
+                </FormField>
+                {isDividendTemplate(form.templateId) && (
                   <FormField label="换平台币触发量">
                     <input value={form.rewardSwapThreshold} onChange={(event) => update('rewardSwapThreshold', event.target.value)} inputMode="decimal" placeholder="留空为总量0.01%" />
                     <small className="field-hint">税收代币累计到该数量后，自动换成平台币进入分红账本。</small>
                   </FormField>
-                </>
-              )}
-              <FormField label="销毁分配 %">
-                <input value={form.burnRate} onChange={(event) => update('burnRate', event.target.value)} inputMode="decimal" />
-                <small className="field-hint">当前分配合计 {formatBnb(getTaxSplitTotal(form))}%</small>
-              </FormField>
-              <FormField label="合约尾号">
-                <input
-                  value={form.vanitySuffix}
-                  onChange={(event) => update('vanitySuffix', normalizeHexSuffix(event.target.value))}
-                  placeholder="例如 5555"
-                />
-              </FormField>
-              <FormField label="CREATE2 Salt">
-                <div className="vanity-tools">
-                  <input
-                    value={form.vanitySalt}
-                    onChange={(event) => update('vanitySalt', event.target.value)}
-                    placeholder="不填则自动生成"
-                  />
-                  <button className="secondary" disabled={busy || !normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)} onClick={mineVanitySalt} type="button">
-                    <Gauge size={15} />
-                    匹配靓号Salt
-                  </button>
-                </div>
-                {vanityPreview && <small className="field-hint">预测地址：{shortAddress(vanityPreview)}，尾号已匹配</small>}
-              </FormField>
-              <ToggleField
-                checked
-                disabled
-                label="底池自动转 dead"
-                text="平台强制规则：初始 LP 或 Mint 累积 LP 全部进入黑洞地址。"
-                onChange={(value) => update('deadLiquidity', value)}
-              />
-              <ToggleField
-                checked={form.whitelist}
-                label="开启白名单窗口"
-                text="开启后只有名单内钱包可在白名单窗口 Mint 或提前参与。"
-                onChange={(value) => update('whitelist', value)}
-              />
-              {form.whitelist && (
-                <FormField label="白名单钱包地址" wide>
-                  <div className="whitelist-editor">
-                    <textarea
-                      value={form.whitelistAddresses}
-                      onChange={(event) => update('whitelistAddresses', event.target.value)}
-                      placeholder={'每行一个地址，也支持逗号/空格分隔\n0x...\n0x...'}
-                    />
-                    <div className="whitelist-tools">
-                      <span className="status-pill green">{whitelistInfo.valid.length} 个有效地址</span>
-                      <span className={`status-pill ${whitelistInfo.invalid.length ? 'red' : 'cyan'}`}>
-                        {whitelistInfo.invalid.length ? `${whitelistInfo.invalid.length} 个错误` : '格式正常'}
-                      </span>
-                      {wallet.address && (
-                        <button
-                          className="secondary"
-                          onClick={() => update('whitelistAddresses', appendWhitelistAddress(form.whitelistAddresses, wallet.address))}
-                          type="button"
-                        >
-                          <Wallet size={15} />
-                          加入当前钱包
-                        </button>
-                      )}
-                      <span className="status-pill green">创建时写入新池</span>
-                      <button className="secondary" onClick={() => update('whitelistAddresses', '')} type="button">
-                        清空名单
-                      </button>
-                    </div>
-                    {whitelistInfo.invalid.length > 0 && (
-                      <div className="invalid-list">
-                        <b>格式错误：</b>
-                        <span>{whitelistInfo.invalid.slice(0, 6).join('、')}</span>
-                      </div>
-                    )}
-                  </div>
-                </FormField>
-              )}
-              <ToggleField
-                checked={form.autoVerify}
-                label="自动验证代码"
-                text="部署后在 BscScan 展示源码和参数。"
-                onChange={(value) => update('autoVerify', value)}
-              />
-              <FormField label="官网">
-                <input value={form.website} onChange={(event) => update('website', event.target.value)} placeholder="https://..." />
-              </FormField>
-              <FormField label="推特 / X">
-                <input value={form.x} onChange={(event) => update('x', event.target.value)} placeholder="@..." />
-              </FormField>
-              <FormField label="Telegram">
-                <input value={form.telegram} onChange={(event) => update('telegram', event.target.value)} placeholder="https://t.me/..." />
-              </FormField>
-              <FormField label="备注" wide>
-                <textarea value={form.note} onChange={(event) => update('note', event.target.value)} placeholder="项目宣言、风险提醒、社群安排" />
-              </FormField>
-            </fieldset>
-          )}
-
-          {launchStep === 'preview' && (
-            <fieldset className="wizard-fieldset preview-fieldset">
-              <legend>确认发射</legend>
-              <div className="launch-confirm">
-                <Rocket size={26} />
-                <h3>{form.tokenName || 'Pepe Fighter'} 准备登上擂台</h3>
-                <p>请确认右侧预览、工厂地址、发射参数和白名单状态。点击创建后会拉起钱包部署新币。</p>
-                <div className="live-mint-strip">
-                  <span>
-                    <em>Mint单价</em>
-                    <b>{form.mintPrice} BNB</b>
-                  </span>
-                  <span>
-                    <em>每份获得</em>
-                    <b>{formatUnits(mintParams.amountPerMint, 18, 4)} {form.symbol || tokenSymbol}</b>
-                  </span>
-                  <span>
-                    <em>总份数</em>
-                    <b>{form.mintSlots}</b>
-                  </span>
-                </div>
-                {form.whitelist && (
-                  <div className="whitelist-summary">
-                    <LockKeyhole size={17} />
-                    白名单已开启：{whitelistInfo.valid.length} 个有效地址 / {mintParams.whiteLimit.toString()} 份
-                    {whitelistInfo.invalid.length > 0 && `，${whitelistInfo.invalid.length} 个地址需修正`}
-                  </div>
                 )}
-                <div className="whitelist-summary">
-                  <ShieldCheck size={17} />
-                  每笔 Mint 自动加池：BNB 100% / 代币 50%，LP 进 dead；24 小时未满可手动退款可退余额。
-                </div>
-                <div className="benefit-grid compact">
-                  {benefits.slice(0, 4).map((item) => (
-                    <span key={item}>
-                      <CheckCircle2 size={15} />
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </fieldset>
-          )}
+                <FormField label="销毁分配 %">
+                  <input value={form.burnRate} onChange={(event) => update('burnRate', event.target.value)} inputMode="decimal" />
+                  <small className="field-hint">当前分配合计 {formatBnb(getTaxSplitTotal(form))}%</small>
+                </FormField>
+                <FormField label="合约尾号">
+                  <input
+                    value={normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX) || VANITY_SUFFIX}
+                    placeholder="例如 5555"
+                    readOnly
+                  />
+                  <small className="field-hint">当前工厂固定匹配尾号 ...{VANITY_SUFFIX}</small>
+                </FormField>
+                <FormField label="CREATE2 Salt">
+                  <div className="vanity-tools">
+                    <input
+                      value={form.vanitySalt}
+                      onChange={(event) => update('vanitySalt', event.target.value)}
+                      placeholder="不填则自动生成"
+                    />
+                    <button className="secondary" disabled={busy || !normalizeHexSuffix(form.vanitySuffix || VANITY_SUFFIX)} onClick={mineVanitySalt} type="button">
+                      <Gauge size={15} />
+                      匹配靓号Salt
+                    </button>
+                  </div>
+                  {vanityPreview && <small className="field-hint">预测地址：{shortAddress(vanityPreview)}，尾号已匹配</small>}
+                </FormField>
+                <ToggleField
+                  checked={form.autoVerify}
+                  label="自动验证代码"
+                  text="部署后在 BscScan 展示源码和参数。"
+                  onChange={(value) => update('autoVerify', value)}
+                />
+                <FormField label="官网">
+                  <input value={form.website} onChange={(event) => update('website', event.target.value)} placeholder="https://..." />
+                </FormField>
+                <FormField label="推特 / X">
+                  <input value={form.x} onChange={(event) => update('x', event.target.value)} placeholder="@..." />
+                </FormField>
+                <FormField label="Telegram">
+                  <input value={form.telegram} onChange={(event) => update('telegram', event.target.value)} placeholder="https://t.me/..." />
+                </FormField>
+                <FormField label="备注" wide>
+                  <textarea value={form.note} onChange={(event) => update('note', event.target.value)} placeholder="项目宣言、风险提醒、社群安排" />
+                </FormField>
+              </fieldset>
+            )}
+          </div>
 
-          <div className="step-actions">
-            <button className="secondary" disabled={!previousStep} onClick={() => previousStep && setLaunchStep(previousStep.id)} type="button">
-              {previousStep ? previousStep.title : '第一步'}
-            </button>
-            {nextStep ? (
-              <button className="primary" onClick={() => setLaunchStep(nextStep.id)} type="button">
-                下一步：{nextStep.title}
-                <ChevronRight size={16} />
-              </button>
-            ) : (
-              <button className="primary" type="submit">
+          <div className="quick-submit-card">
+            <div className="launch-confirm compact-confirm">
+              <Rocket size={24} />
+              <div>
+                <h3>{form.tokenName || 'Pepe Fighter'} 准备发射</h3>
+                <p>确认后会拉起真实钱包交易，创建 AppleToken + AppleMintVault。</p>
+              </div>
+            </div>
+            <div className="live-mint-strip">
+              <span>
+                <em>Mint单价</em>
+                <b>{form.mintPrice} BNB</b>
+              </span>
+              <span>
+                <em>每份获得</em>
+                <b>{formatUnits(mintParams.amountPerMint, 18, 4)} {form.symbol || tokenSymbol}</b>
+              </span>
+              <span>
+                <em>总份数</em>
+                <b>{form.mintSlots}</b>
+              </span>
+            </div>
+            {form.whitelist && (
+              <div className="whitelist-summary">
+                <LockKeyhole size={17} />
+                白名单：{whitelistInfo.valid.length} 个有效地址 / {mintParams.whiteLimit.toString()} 份
+                {whitelistInfo.invalid.length > 0 && `，${whitelistInfo.invalid.length} 个地址需修正`}
+              </div>
+            )}
+            <div className="quick-submit-actions">
+              {!wallet.address && (
+                <button className="secondary" onClick={connectWallet} type="button">
+                  <Wallet size={16} />
+                  连接钱包
+                </button>
+              )}
+              <button className="primary" disabled={busy} type="submit">
                 <Coins size={16} />
                 {form.mode === 'mint' ? (form.whitelist ? '创建白名单Mint池' : '创建公开Mint池') : '登上擂台'}
               </button>
-            )}
+            </div>
           </div>
+
         </div>
 
         <aside className={`launch-summary ${launchStep !== 'preview' ? 'desktop-summary' : ''}`}>
@@ -2775,36 +2775,6 @@ function ModeToggle({ value, onChange }) {
         <button className={value === id ? 'active' : ''} key={id} onClick={() => onChange(id)} type="button">
           <Icon size={15} />
           {title}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function LaunchStepper({ value, onChange }) {
-  return (
-    <div className="launch-stepper" aria-label="发射步骤">
-      {launchWizardSteps.map((step, index) => (
-        <button className={value === step.id ? 'active' : ''} key={step.id} onClick={() => onChange(step.id)} type="button">
-          <span>{String(index + 1).padStart(2, '0')}</span>
-          <b>{step.label}</b>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ModeCards({ value, onChange }) {
-  return (
-    <div className="mode-cards">
-      {launchModes.map(({ id, title, kicker, text, icon: Icon }) => (
-        <button className={value === id ? 'active' : ''} key={id} onClick={() => onChange(id)} type="button">
-          <Icon size={20} />
-          <span>
-            <b>{title}</b>
-            <em>{kicker}</em>
-            <small>{text}</small>
-          </span>
         </button>
       ))}
     </div>
