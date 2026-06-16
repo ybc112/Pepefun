@@ -62,16 +62,6 @@ import {
   type PancakeSwapQuote,
   type PancakeSwapRequest,
 } from './contracts/pancake'
-import {
-  applyForAuditor,
-  fetchAuditDashboard,
-  isAuditRegistryConfigured,
-  setAuditorStatus,
-  submitAuditReview,
-  type AuditDashboard,
-  type AuditorStatus,
-  type RiskLevel,
-} from './contracts/audit'
 import type {
   AllocationKey,
   AllocationState,
@@ -95,7 +85,7 @@ import {
   targetChainId,
 } from './wallet'
 
-const pages: PageKey[] = ['home', 'launch', 'auditors', 'verify', 'swap', 'detail']
+const pages: PageKey[] = ['home', 'launch', 'community', 'verify', 'swap', 'detail']
 const appName = String(import.meta.env.VITE_APP_NAME ?? 'PepeFun')
 const appSymbol = String(import.meta.env.VITE_APP_SYMBOL ?? 'PEPE')
 const factoryExplorerUrl = `${BNB_CHAIN.blockExplorerUrls[0]}/address/${launchpadConfig.factoryAddress}#code`
@@ -138,7 +128,7 @@ const copy = {
     },
     nav: {
       home: '返回首页',
-      auditors: '审核员',
+      community: '社区',
       verify: '合约开源',
       swap: '交易所',
       launch: '部署代币',
@@ -174,15 +164,6 @@ const copy = {
       confirmSwap: '请在钱包里确认 PancakeSwap 兑换交易。',
       swapSubmitted: (hash: string) => `Swap 交易已提交：${hash}，正在等待链上确认。`,
       swapConfirmed: 'Swap 交易已确认。',
-      confirmAuditorApply: '请在钱包里确认审核员申请交易。',
-      auditorApplySubmitted: (hash: string) => `审核员申请已提交：${hash}，正在等待链上确认。`,
-      auditorApplyConfirmed: '审核员申请已写入链上，等待管理员批准。',
-      confirmAuditorStatus: '请在钱包里确认审核员状态交易。',
-      auditorStatusSubmitted: (hash: string) => `审核员状态交易已提交：${hash}，正在等待链上确认。`,
-      auditorStatusConfirmed: '审核员状态已更新。',
-      confirmAuditReview: '请在钱包里确认项目审核交易。',
-      auditReviewSubmitted: (hash: string) => `项目审核已提交：${hash}，正在等待链上确认。`,
-      auditReviewConfirmed: '项目审核记录已写入链上。',
     },
     home: {
       eyebrow: `${appName} Launch Protocol`,
@@ -190,7 +171,7 @@ const copy = {
       subtitle:
         '创建独立 ERC20 和独立 Vault，配置 mint、税收、奖励和接收钱包。每一次发射都会写入链上，确认后自动出现在项目列表。',
       launch: '部署代币',
-      openAuditors: '审核员入口',
+      openCommunity: '加入社区',
       consoleAria: '发射流程预览',
       consoleStats: [
         ['代币', appSymbol, '100,000'],
@@ -395,40 +376,7 @@ const copy = {
       taxRate: '税率',
       totalAllocation: '总分配',
       factory: '工厂',
-    },
-    auditors: {
-      title: '链上审核员',
-      desc: '审核员申请、平台批准、项目评分和报告链接都会写入 Audit Registry，用户可以直接查链上记录。',
-      configWarning: '审核 Registry 未配置：前端源码已内置当前 Registry 地址；如需换合约再覆盖配置。',
-      registry: '审核 Registry',
-      connect: '连接钱包',
-      statusTitle: '我的审核员状态',
-      statusLabels: ['未申请', '待审核', '已批准'],
-      statusHelp: ['还没有提交链上申请。', '申请已上链，等待管理员批准。', '可以提交项目审核报告。'],
-      profileTitle: '申请成为审核员',
-      profileDesc: '资料链接可以是 IPFS、官网、GitHub、Notion 或历史报告页。',
-      profileUri: '资料链接 / Profile URI',
-      apply: '提交申请',
-      reviewTitle: '提交项目审核',
-      reviewDesc: '只有已批准审核员可以提交，重复提交同一项目会更新原记录。',
-      projectToken: '项目代币合约',
-      score: '评分 0-100',
-      risk: '风险等级',
-      riskLabels: ['低风险', '中风险', '高风险', '严重风险'],
-      reportUri: '报告链接 / Report URI',
-      submitReview: '提交链上审核',
-      pending: '等待确认',
-      adminTitle: '管理员审批',
-      adminDesc: '只有 Registry owner 钱包可以批准审核员；审核员只负责提交报告，不控制开盘。',
-      auditorWallet: '审核员钱包',
-      approve: '批准',
-      ownerOnly: '连接 Registry owner 钱包后可审批审核员。',
-      recentTitle: '最近审核记录',
-      emptyReviews: '暂无链上审核记录。',
-      openReport: '打开报告',
-      owner: 'Registry 管理员',
-    },
-    verify: {
+    },    verify: {
       title: '工厂合约已开源',
       subtitle: '当前发射工厂已在 BscScan 完成源码验证，用户可以直接检查构造参数和合约代码。',
       button: '查看 BscScan',
@@ -450,7 +398,7 @@ const copy = {
     },
     nav: {
       home: 'Home',
-      auditors: 'Auditors',
+      community: 'Community',
       verify: 'Verified',
       swap: 'Swap',
       launch: 'Launch token',
@@ -486,15 +434,6 @@ const copy = {
       confirmSwap: 'Confirm the PancakeSwap transaction in your wallet.',
       swapSubmitted: (hash: string) => `Swap transaction submitted: ${hash}. Waiting for confirmation.`,
       swapConfirmed: 'Swap transaction confirmed.',
-      confirmAuditorApply: 'Confirm the auditor application transaction in your wallet.',
-      auditorApplySubmitted: (hash: string) => `Auditor application submitted: ${hash}. Waiting for confirmation.`,
-      auditorApplyConfirmed: 'Auditor application is recorded on-chain and waiting for admin approval.',
-      confirmAuditorStatus: 'Confirm the auditor status transaction in your wallet.',
-      auditorStatusSubmitted: (hash: string) => `Auditor status transaction submitted: ${hash}. Waiting for confirmation.`,
-      auditorStatusConfirmed: 'Auditor status updated.',
-      confirmAuditReview: 'Confirm the project review transaction in your wallet.',
-      auditReviewSubmitted: (hash: string) => `Project review submitted: ${hash}. Waiting for confirmation.`,
-      auditReviewConfirmed: 'Project review is recorded on-chain.',
     },
     home: {
       eyebrow: `${appName} Launch Protocol`,
@@ -502,7 +441,7 @@ const copy = {
       subtitle:
         'Create an independent ERC20 and mint vault, configure minting, taxes, rewards, and the receiver wallet. Every launch is written on-chain and appears in the project list after confirmation.',
       launch: 'Launch token',
-      openAuditors: 'Auditors',
+      openCommunity: 'Community',
       consoleAria: 'Launch flow preview',
       consoleStats: [
         ['Token', appSymbol, '100,000'],
@@ -707,40 +646,7 @@ const copy = {
       taxRate: 'Tax rate',
       totalAllocation: 'Total allocation',
       factory: 'Factory',
-    },
-    auditors: {
-      title: 'On-chain auditors',
-      desc: 'Auditor applications, admin approval, project scores, and report links are written to the Audit Registry.',
-      configWarning: 'Audit Registry is not configured. The current Registry address is built into the frontend source; override it only for a new deployment.',
-      registry: 'Audit Registry',
-      connect: 'Connect wallet',
-      statusTitle: 'My auditor status',
-      statusLabels: ['Not applied', 'Applied', 'Approved'],
-      statusHelp: ['No on-chain application yet.', 'Application is on-chain and waiting for approval.', 'You can submit project reviews.'],
-      profileTitle: 'Apply as auditor',
-      profileDesc: 'Profile can be an IPFS URI, website, GitHub, Notion, or prior report page.',
-      profileUri: 'Profile link / URI',
-      apply: 'Submit application',
-      reviewTitle: 'Submit project review',
-      reviewDesc: 'Only approved auditors can submit. Re-submitting the same project updates the previous record.',
-      projectToken: 'Project token contract',
-      score: 'Score 0-100',
-      risk: 'Risk level',
-      riskLabels: ['Low', 'Medium', 'High', 'Critical'],
-      reportUri: 'Report link / URI',
-      submitReview: 'Submit on-chain review',
-      pending: 'Waiting',
-      adminTitle: 'Admin approval',
-      adminDesc: 'Only the Registry owner wallet can approve auditors. Auditors only submit reports and do not control launch finalization.',
-      auditorWallet: 'Auditor wallet',
-      approve: 'Approve',
-      ownerOnly: 'Connect the Registry owner wallet to approve auditors.',
-      recentTitle: 'Recent reviews',
-      emptyReviews: 'No on-chain reviews yet.',
-      openReport: 'Open report',
-      owner: 'Registry owner',
-    },
-    verify: {
+    },    verify: {
       title: 'Factory verified',
       subtitle: 'The launch Factory source code is verified on BscScan. Users can inspect constructor arguments and contract code directly.',
       button: 'View BscScan',
@@ -862,10 +768,6 @@ function App() {
   const [projectsError, setProjectsError] = useState('')
   const [projectQuery, setProjectQuery] = useState('')
   const [projectsRefreshKey, setProjectsRefreshKey] = useState(0)
-  const [auditDashboard, setAuditDashboard] = useState<AuditDashboard | null>(null)
-  const [auditStatus, setAuditStatus] = useState<ProjectsStatus>('idle')
-  const [auditError, setAuditError] = useState('')
-  const [auditRefreshKey, setAuditRefreshKey] = useState(0)
   const text = copy[language]
 
   const allocationTotal = useMemo(
@@ -944,44 +846,6 @@ function App() {
     }
   }, [projects, refreshProjects])
 
-  useEffect(() => {
-    let active = true
-
-    if (!isAuditRegistryConfigured) {
-      setAuditDashboard(null)
-      setAuditStatus('ready')
-      setAuditError('')
-      return () => {
-        active = false
-      }
-    }
-
-    setAuditStatus('loading')
-    setAuditError('')
-
-    fetchAuditDashboard(wallet.account)
-      .then((dashboard) => {
-        if (!active) {
-          return
-        }
-
-        setAuditDashboard(dashboard)
-        setAuditStatus('ready')
-      })
-      .catch((error) => {
-        if (!active) {
-          return
-        }
-
-        setAuditDashboard(null)
-        setAuditStatus('error')
-        setAuditError(readProviderErrorMessage(error))
-      })
-
-    return () => {
-      active = false
-    }
-  }, [auditRefreshKey, wallet.account])
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -1446,65 +1310,6 @@ function App() {
     }
   }
 
-  const submitAuditorApplication = async (profileUri: string) => {
-    try {
-      const provider = await prepareWalletTransaction()
-      if (!provider) {
-        return
-      }
-
-      setNotice({ kind: 'info', message: text.notice.confirmAuditorApply })
-      const result = await applyForAuditor(provider, profileUri, language)
-      setNotice({ kind: 'info', message: text.notice.auditorApplySubmitted(shortHash(result.hash)) })
-      await waitForTransactionReceipt(provider, result.hash, 120_000, language)
-      setNotice({ kind: 'success', message: text.notice.auditorApplyConfirmed })
-      setAuditRefreshKey((current) => current + 1)
-    } catch (error) {
-      setNotice({ kind: 'error', message: readProviderErrorMessage(error) })
-    }
-  }
-
-  const submitAuditorStatus = async (auditor: string, status: AuditorStatus) => {
-    try {
-      const provider = await prepareWalletTransaction()
-      if (!provider) {
-        return
-      }
-
-      setNotice({ kind: 'info', message: text.notice.confirmAuditorStatus })
-      const result = await setAuditorStatus(provider, auditor, status, language)
-      setNotice({ kind: 'info', message: text.notice.auditorStatusSubmitted(shortHash(result.hash)) })
-      await waitForTransactionReceipt(provider, result.hash, 120_000, language)
-      setNotice({ kind: 'success', message: text.notice.auditorStatusConfirmed })
-      setAuditRefreshKey((current) => current + 1)
-    } catch (error) {
-      setNotice({ kind: 'error', message: readProviderErrorMessage(error) })
-    }
-  }
-
-  const submitProjectAudit = async (
-    projectToken: string,
-    score: string,
-    riskLevel: RiskLevel,
-    reportUri: string,
-  ) => {
-    try {
-      const provider = await prepareWalletTransaction()
-      if (!provider) {
-        return
-      }
-
-      setNotice({ kind: 'info', message: text.notice.confirmAuditReview })
-      const result = await submitAuditReview(provider, projectToken, score, riskLevel, reportUri, language)
-      setNotice({ kind: 'info', message: text.notice.auditReviewSubmitted(shortHash(result.hash)) })
-      await waitForTransactionReceipt(provider, result.hash, 120_000, language)
-      setNotice({ kind: 'success', message: text.notice.auditReviewConfirmed })
-      setAuditRefreshKey((current) => current + 1)
-    } catch (error) {
-      setNotice({ kind: 'error', message: readProviderErrorMessage(error) })
-    }
-  }
-
   const submitSwapApproval = async (tokenAddress: string, amountIn: string) => {
     try {
       const provider = await prepareWalletTransaction()
@@ -1661,17 +1466,13 @@ function App() {
           whitelistEnabled={whitelistEnabled}
         />
       )}
-      {page === 'auditors' && (
-        <AuditorsPage
-          auditDashboard={auditDashboard}
-          auditError={auditError}
-          auditStatus={auditStatus}
-          connectWallet={connectWallet}
-          submitAuditorApplication={submitAuditorApplication}
-          submitAuditorStatus={submitAuditorStatus}
-          submitProjectAudit={submitProjectAudit}
-          text={text}
-          wallet={wallet}
+      {page === 'community' && (
+        <CommunityPage
+          language={language}
+          navigate={navigate}
+          openFactory={openFactory}
+          projects={projects}
+          projectsStatus={projectsStatus}
         />
       )}
       {page === 'verify' && (
@@ -1711,7 +1512,7 @@ function Header({
   const nav = [
     { page: 'home' as PageKey, label: text.nav.home, icon: <Home size={17} /> },
     { page: 'swap' as PageKey, label: text.nav.swap, icon: <ArrowUpDown size={17} /> },
-    { page: 'auditors' as PageKey, label: text.nav.auditors, icon: <ShieldCheck size={17} /> },
+    { page: 'community' as PageKey, label: text.nav.community, icon: <MessageCircle size={17} /> },
     { page: 'verify' as PageKey, label: text.nav.verify, icon: <FileCode2 size={17} /> },
   ]
   const socialLinks = [
@@ -1736,15 +1537,15 @@ function Header({
         aria-label={appName}
       >
         <span className="brand-mark">
-          <img src="/favicon.svg" alt="" />
+          <img src="/pepe-mark.svg" alt="" />
         </span>
         <span>
           <strong>{appName}</strong>
           <small>
             {activePage === 'launch'
               ? 'Mint'
-              : activePage === 'auditors'
-                ? 'Audit'
+              : activePage === 'community'
+                ? 'Club'
                 : activePage === 'swap' ? 'Swap' : 'Launch'}
           </small>
         </span>
@@ -1883,16 +1684,16 @@ function HomePage({
               <Rocket size={18} />
               {text.home.launch}
             </button>
-            <button className="ghost-button" type="button" onClick={() => navigate('auditors')}>
-              <ShieldCheck size={18} />
-              {text.home.openAuditors}
+            <button className="ghost-button" type="button" onClick={() => navigate('community')}>
+              <MessageCircle size={18} />
+              {text.home.openCommunity}
             </button>
           </div>
         </div>
 
         <div className="hero-console" aria-label={text.home.consoleAria}>
           <div className="console-head">
-            <span>{appSymbol} SEED</span>
+            <span>{appSymbol} CLUB</span>
             <strong>0.005 BNB</strong>
           </div>
           <div className="console-grid">
@@ -3642,232 +3443,117 @@ function TaxRing({
   )
 }
 
-function AuditorsPage({
-  auditDashboard,
-  auditError,
-  auditStatus,
-  connectWallet,
-  submitAuditorApplication,
-  submitAuditorStatus,
-  submitProjectAudit,
-  text,
-  wallet,
+function CommunityPage({
+  language,
+  navigate,
+  openFactory,
+  projects,
+  projectsStatus,
 }: {
-  auditDashboard: AuditDashboard | null
-  auditError: string
-  auditStatus: ProjectsStatus
-  connectWallet: () => void
-  submitAuditorApplication: (profileUri: string) => Promise<void>
-  submitAuditorStatus: (auditor: string, status: AuditorStatus) => Promise<void>
-  submitProjectAudit: (
-    projectToken: string,
-    score: string,
-    riskLevel: RiskLevel,
-    reportUri: string,
-  ) => Promise<void>
-  text: (typeof copy)[Language]
-  wallet: WalletState
+  language: Language
+  navigate: (page: PageKey) => void
+  openFactory: () => void
+  projects: LaunchProject[]
+  projectsStatus: ProjectsStatus
 }) {
-  const [profileUri, setProfileUri] = useState('')
-  const [auditorWallet, setAuditorWallet] = useState('')
-  const [projectToken, setProjectToken] = useState('')
-  const [score, setScore] = useState('88')
-  const [riskLevel, setRiskLevel] = useState<RiskLevel>(1)
-  const [reportUri, setReportUri] = useState('')
-  const [pendingAction, setPendingAction] = useState('')
-  const profile = auditDashboard?.profile ?? {
-    status: 0 as AuditorStatus,
-    profileUri: '',
-    appliedAt: 0,
-    approvedAt: 0,
-    reviewCount: '0',
+  const qqGroup = '868754196'
+  const [copied, setCopied] = useState(false)
+  const isZh = language === 'zh'
+  const activeProjects = projects.filter((project) => project.progress < 100).length
+  const finalizedProjects = projects.filter((project) => project.finalized || project.progress >= 100).length
+
+  const copyQQ = async () => {
+    await copyTextToClipboard(qqGroup)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1800)
   }
-  const isOwner =
-    Boolean(wallet.account && auditDashboard?.owner) &&
-    wallet.account.toLowerCase() === String(auditDashboard?.owner).toLowerCase()
-  const isApproved = profile.status === 2
-  const statusLabel = text.auditors.statusLabels[profile.status] ?? text.auditors.statusLabels[0]
-  const statusHelp = text.auditors.statusHelp[profile.status] ?? text.auditors.statusHelp[0]
+
+  const facts = [
+    {
+      label: isZh ? '当前工厂' : 'Factory',
+      value: shortAddress(launchpadConfig.factoryAddress),
+      text: isZh ? '部署新币、Mint 池、白名单和退款都走这个工厂。' : 'Launches, mint vaults, whitelist, and refunds use this factory.',
+    },
+    {
+      label: isZh ? '尾号规则' : 'Suffix',
+      value: launchpadConfig.vanitySuffix ? launchpadConfig.vanitySuffix.toUpperCase() : 'EEEE',
+      text: isZh ? '后端自动匹配靓号 Salt，链上工厂会再次校验。' : 'The backend mines a vanity salt and the factory verifies it on-chain.',
+    },
+    {
+      label: isZh ? '链上项目' : 'Projects',
+      value: projectsStatus === 'loading' ? '...' : String(projects.length),
+      text: isZh ? `${activeProjects} 个进行中，${finalizedProjects} 个已完成。` : `${activeProjects} active, ${finalizedProjects} finalized.`,
+    },
+  ]
 
   return (
-    <main className="page narrow">
-      <section className="auditor-hero">
+    <main className="page community-page">
+      <section className="community-hero">
         <div>
-          <p>{text.auditors.registry}</p>
-          <h1>{text.auditors.title}</h1>
-          <span>{text.auditors.desc}</span>
+          <p>{isZh ? 'PEPE 社区入口' : 'PEPE Community'}</p>
+          <h1>{isZh ? '一起发新币、看项目、接上链上记录' : 'Launch, track, and trade together'}</h1>
+          <span>
+            {isZh
+              ? 'QQ群用于同步发射台更新、部署问题、Mint 记录和开盘提醒。页面功能仍然全部连接真实钱包和 BSC 链上合约。'
+              : 'The community is for launchpad updates, deployment help, mint records, and market-open notices. The app remains connected to real wallets and BSC contracts.'}
+          </span>
+          <div className="community-actions">
+            <button className="primary-button" type="button" onClick={copyQQ}>
+              <MessageCircle size={18} />
+              {copied ? (isZh ? '已复制QQ群' : 'Copied') : `QQ群 ${qqGroup}`}
+            </button>
+            <button className="ghost-button" type="button" onClick={() => navigate('launch')}>
+              <Rocket size={18} />
+              {isZh ? '部署新币' : 'Launch token'}
+            </button>
+          </div>
         </div>
-        <button className="wallet-button" type="button" onClick={connectWallet}>
-          <Wallet size={17} />
-          {wallet.account ? shortAddress(wallet.account) : text.auditors.connect}
-        </button>
+        <div className="community-badge" aria-label="PEPE community badge">
+          <strong>PEPE</strong>
+          <span>{isZh ? '四 e 靓号 · 自动验源码 · BSC' : 'EEEE suffix · auto verify · BSC'}</span>
+        </div>
       </section>
 
-      {!isAuditRegistryConfigured && (
-        <div className="config-warning">
-          <AlertCircle size={18} />
-          {text.auditors.configWarning}
-        </div>
-      )}
-
-      {auditError && (
-        <div className="config-warning">
-          <AlertCircle size={18} />
-          {auditError}
-        </div>
-      )}
-
-      <section className="auditor-grid">
-        <article className="auditor-card">
-          <div className="section-head compact">
-            <div>
-              <p>{text.auditors.statusTitle}</p>
-              <h2>{statusLabel}</h2>
-              <span>{statusHelp}</span>
-            </div>
-            <strong>{profile.reviewCount}</strong>
-          </div>
-          <div className="audit-facts">
-            <div>
-              <span>{text.auditors.owner}</span>
-              <strong>{auditDashboard?.owner ? shortAddress(auditDashboard.owner) : '-'}</strong>
-            </div>
-            <div>
-              <span>{text.auditors.profileUri}</span>
-              <strong>{profile.profileUri || '-'}</strong>
-            </div>
-          </div>
-        </article>
-
-        <form
-          className="auditor-card"
-          onSubmit={async (event) => {
-            event.preventDefault()
-            setPendingAction('apply')
-            try {
-              await submitAuditorApplication(profileUri)
-              setProfileUri('')
-            } finally {
-              setPendingAction('')
-            }
-          }}
-        >
-          <div className="section-head compact">
-            <div>
-              <p>{text.auditors.profileTitle}</p>
-              <h2>{text.auditors.apply}</h2>
-              <span>{text.auditors.profileDesc}</span>
-            </div>
-          </div>
-          <InputField
-            label={text.auditors.profileUri}
-            value={profileUri}
-            onChange={setProfileUri}
-          />
-          <button className="submit-button" type="submit" disabled={!isAuditRegistryConfigured || pendingAction === 'apply'}>
-            <Wallet size={18} />
-            {pendingAction === 'apply' ? text.auditors.pending : text.auditors.apply}
-          </button>
-        </form>
-
-        <form
-          className="auditor-card wide"
-          onSubmit={async (event) => {
-            event.preventDefault()
-            setPendingAction('review')
-            try {
-              await submitProjectAudit(projectToken, score, riskLevel, reportUri)
-              setReportUri('')
-            } finally {
-              setPendingAction('')
-            }
-          }}
-        >
-          <div className="section-head compact">
-            <div>
-              <p>{text.auditors.reviewTitle}</p>
-              <h2>{text.auditors.submitReview}</h2>
-              <span>{text.auditors.reviewDesc}</span>
-            </div>
-            <strong>{isApproved ? statusLabel : text.auditors.statusLabels[profile.status]}</strong>
-          </div>
-          <div className="fields two">
-            <InputField label={text.auditors.projectToken} value={projectToken} onChange={setProjectToken} />
-            <InputField label={text.auditors.score} value={score} onChange={setScore} />
-          </div>
-          <label className="field">
-            <span>{text.auditors.risk}</span>
-            <select value={riskLevel} onChange={(event) => setRiskLevel(Number(event.target.value) as RiskLevel)}>
-              {text.auditors.riskLabels.map((label, index) => (
-                <option key={label} value={index}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <InputField label={text.auditors.reportUri} value={reportUri} onChange={setReportUri} />
-          <button className="submit-button" type="submit" disabled={!isAuditRegistryConfigured || !isApproved || pendingAction === 'review'}>
-            <ShieldCheck size={18} />
-            {pendingAction === 'review' ? text.auditors.pending : text.auditors.submitReview}
-          </button>
-        </form>
-
-        <form
-          className="auditor-card"
-          onSubmit={async (event) => {
-            event.preventDefault()
-            setPendingAction('approve')
-            try {
-              await submitAuditorStatus(auditorWallet, 2)
-            } finally {
-              setPendingAction('')
-            }
-          }}
-        >
-          <div className="section-head compact">
-            <div>
-              <p>{text.auditors.adminTitle}</p>
-              <h2>{isOwner ? text.auditors.approve : text.auditors.ownerOnly}</h2>
-              <span>{text.auditors.adminDesc}</span>
-            </div>
-          </div>
-          <InputField label={text.auditors.auditorWallet} value={auditorWallet} onChange={setAuditorWallet} />
-          <button className="submit-button" type="submit" disabled={!isOwner || pendingAction === 'approve'}>
-            <UserPlus size={18} />
-            {pendingAction === 'approve' ? text.auditors.pending : text.auditors.approve}
-          </button>
-        </form>
+      <section className="community-grid">
+        {facts.map((fact) => (
+          <article className="community-card" key={fact.label}>
+            <p>{fact.label}</p>
+            <h2>{fact.value}</h2>
+            <span>{fact.text}</span>
+          </article>
+        ))}
       </section>
 
-      <section className="auditor-card review-board">
+      <section className="community-panel">
         <div className="section-head compact">
           <div>
-            <p>{text.auditors.recentTitle}</p>
-            <h2>{auditStatus === 'loading' ? text.projects.loading : text.auditors.recentTitle}</h2>
+            <p>{isZh ? '常用入口' : 'Quick links'}</p>
+            <h2>{isZh ? '社区里最常用的三件事' : 'The three useful places'}</h2>
           </div>
         </div>
-        {auditDashboard?.recentReviews.length ? (
-          <div className="review-list">
-            {auditDashboard.recentReviews.map((review) => (
-              <article className="review-row" key={`${review.projectToken}-${review.auditor}`}>
-                <div>
-                  <strong>{shortAddress(review.projectToken)}</strong>
-                  <span>
-                    {shortAddress(review.auditor)} · {formatAuditDate(review.updatedAt)}
-                  </span>
-                </div>
-                <em>{text.auditors.riskLabels[review.riskLevel]}</em>
-                <b>{review.score}/100</b>
-                <button type="button" onClick={() => window.open(normalizeReportUrl(review.reportUri), '_blank', 'noreferrer')}>
-                  <ExternalLink size={15} />
-                  {text.auditors.openReport}
-                </button>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <p className="muted-line">{text.auditors.emptyReviews}</p>
-        )}
+        <div className="community-links">
+          <button type="button" onClick={() => navigate('launch')}>
+            <Rocket size={18} />
+            <span>
+              <b>{isZh ? '部署新币' : 'Launch token'}</b>
+              <em>{isZh ? '填写参数后拉起真实钱包交易。' : 'Fill params and submit a real wallet transaction.'}</em>
+            </span>
+          </button>
+          <button type="button" onClick={() => navigate('swap')}>
+            <ArrowUpDown size={18} />
+            <span>
+              <b>{isZh ? '交易入口' : 'Swap'}</b>
+              <em>{isZh ? '开盘后的项目可以跳转 Pancake 交易。' : 'Finalized projects can trade through PancakeSwap.'}</em>
+            </span>
+          </button>
+          <button type="button" onClick={openFactory}>
+            <FileCode2 size={18} />
+            <span>
+              <b>{isZh ? '查看工厂合约' : 'Factory source'}</b>
+              <em>{isZh ? '直接打开 BscScan 验证源码页面。' : 'Open the verified BscScan source page.'}</em>
+            </span>
+          </button>
+        </div>
       </section>
     </main>
   )

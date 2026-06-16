@@ -137,7 +137,9 @@ a {
   border: 1px solid rgba(141, 247, 196, 0.5);
   border-radius: var(--radius);
   color: #120d04;
-  background: linear-gradient(135deg, #effff5, #95f3c4 52%, #8bd7ff);
+  background:
+    radial-gradient(circle at 30% 25%, rgba(232, 255, 114, 0.9), transparent 30%),
+    linear-gradient(135deg, #06120b, #14945d 48%, #d8ff63);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
     0 16px 38px rgba(0, 0, 0, 0.35);
@@ -157,8 +159,8 @@ a {
 .brand-mark img {
   position: relative;
   z-index: 1;
-  width: 42px;
-  height: 42px;
+  width: 46px;
+  height: 46px;
   border-radius: 6px;
   object-fit: contain;
 }
@@ -2626,6 +2628,168 @@ input[type="range"]::-moz-range-thumb {
   min-width: 180px;
 }
 
+.community-page {
+  display: grid;
+  gap: 18px;
+}
+
+.community-hero,
+.community-panel,
+.community-card {
+  border: 1px solid rgba(216, 255, 99, 0.18);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(135deg, rgba(216, 255, 99, 0.08), transparent 32%),
+    linear-gradient(215deg, rgba(139, 215, 255, 0.07), transparent 36%),
+    rgba(12, 20, 18, 0.94);
+  box-shadow: 0 20px 58px rgba(0, 0, 0, 0.3);
+}
+
+.community-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 18px;
+  align-items: stretch;
+  min-height: 280px;
+  padding: 28px;
+}
+
+.community-hero p,
+.community-panel .section-head p,
+.community-card p {
+  margin: 0;
+  color: #d8ff63;
+  font-size: 12px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.community-hero h1 {
+  max-width: 760px;
+  margin: 10px 0 14px;
+  color: #f6fff0;
+  font-size: clamp(38px, 6vw, 72px);
+  line-height: 0.96;
+}
+
+.community-hero span,
+.community-card span,
+.community-links em {
+  color: #b8c9bf;
+  line-height: 1.65;
+}
+
+.community-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.community-badge {
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  border: 1px dashed rgba(216, 255, 99, 0.28);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle at 50% 22%, rgba(216, 255, 99, 0.18), transparent 28%),
+    rgba(7, 16, 11, 0.72);
+  text-align: center;
+}
+
+.community-badge strong {
+  color: #d8ff63;
+  font-size: 58px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.community-badge span {
+  max-width: 210px;
+  color: #8df7c4;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.community-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.community-card {
+  display: grid;
+  gap: 8px;
+  min-height: 150px;
+  padding: 20px;
+}
+
+.community-card h2 {
+  margin: 0;
+  color: #8df7c4;
+  font-size: 30px;
+}
+
+.community-panel {
+  padding: 22px;
+}
+
+.community-links {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.community-links button {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-height: 118px;
+  padding: 16px;
+  border: 1px solid rgba(104, 164, 154, 0.26);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.045);
+  text-align: left;
+}
+
+.community-links button:hover {
+  border-color: rgba(216, 255, 99, 0.42);
+  background: rgba(216, 255, 99, 0.08);
+}
+
+.community-links svg {
+  color: #d8ff63;
+  flex: 0 0 auto;
+}
+
+.community-links b {
+  display: block;
+  margin-bottom: 5px;
+}
+
+body {
+  background:
+    radial-gradient(circle at 14% 18%, rgba(216, 255, 99, 0.08), transparent 24%),
+    radial-gradient(circle at 84% 16%, rgba(139, 215, 255, 0.08), transparent 20%),
+    linear-gradient(180deg, #050806, #08130f 46%, #050806);
+}
+
+.home-hero,
+.form-section,
+.side-card,
+.project-board,
+.status-strip,
+.launch-form,
+.launch-side > *,
+.auditor-card,
+.swap-card,
+.detail-stat-panel,
+.mechanism-panel {
+  border-color: rgba(104, 164, 154, 0.2);
+}
+
 @keyframes markSweep {
   0%,
   64% {
@@ -2751,6 +2915,23 @@ input[type="range"]::-moz-range-thumb {
 
   .launch-side {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .community-hero,
+  .community-grid,
+  .community-links {
+    grid-template-columns: 1fr;
+  }
+
+  .community-hero {
+    min-height: 0;
+    padding: 20px;
+  }
+
+  .community-badge {
+    min-height: 180px;
   }
 }
 
