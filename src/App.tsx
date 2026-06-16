@@ -1519,8 +1519,8 @@ function Header({
     { href: normalizeExternalUrl(import.meta.env.VITE_TELEGRAM_URL), label: 'Telegram', icon: <Send size={17} /> },
     { href: normalizeExternalUrl(import.meta.env.VITE_X_URL), label: 'X', icon: <AtSign size={17} /> },
     {
-      href: normalizeExternalUrl(import.meta.env.VITE_QQ_URL || 'https://jq.qq.com/?_wv=1027&k=868754196'),
-      label: 'QQ群 868754196',
+      href: normalizeExternalUrl(import.meta.env.VITE_QQ_URL || 'https://jq.qq.com/?_wv=1027&k=1095298742'),
+      label: 'QQ群 1095298742',
       icon: <MessageCircle size={17} />,
     },
   ].filter((item) => item.href)
@@ -3522,7 +3522,7 @@ function CommunityPage({
   projects: LaunchProject[]
   projectsStatus: ProjectsStatus
 }) {
-  const qqGroup = '868754196'
+  const qqGroup = '1095298742'
   const [copied, setCopied] = useState(false)
   const isZh = language === 'zh'
   const activeProjects = projects.filter((project) => project.progress < 100).length
