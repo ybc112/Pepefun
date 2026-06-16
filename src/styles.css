@@ -1039,6 +1039,22 @@ a {
   white-space: nowrap;
 }
 
+.mint-rule-list {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid rgba(124, 255, 143, 0.22);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.mint-rule-list span {
+  color: #dcebe6;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.45;
+}
+
 .mint-panel .submit-button {
   min-height: 52px;
   color: #00130c;
@@ -1725,6 +1741,23 @@ a {
 
 .quota-summary strong {
   color: var(--accent);
+}
+
+.launch-warning {
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 212, 113, 0.38);
+  border-radius: var(--radius);
+  color: #ffe4a3;
+  background: rgba(255, 212, 113, 0.1);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.55;
+}
+
+.launch-warning.soft {
+  border-color: rgba(124, 255, 143, 0.28);
+  color: #dfffe6;
+  background: rgba(124, 255, 143, 0.075);
 }
 
 .template-grid,

@@ -1885,13 +1885,54 @@ function ProjectCard({
   const totalWhitelistListed = Number(project.totalWhitelistAllowance || '0')
   const whitelistSlotsRemaining = Math.max(0, whitelistTotal - whitelistMinted)
   const userWhitelistRemaining = Number(project.whitelistRemaining || '0')
+  const maxMintPerWallet = Number(project.maxMintPerWallet || '0')
+  const userMintedCount = Number(project.userMintedCount || '0')
+  const walletMintLimitRemaining =
+    maxMintPerWallet > 0 ? Math.max(0, maxMintPerWallet - userMintedCount) : Number.POSITIVE_INFINITY
   const whitelistPhaseActive = project.whitelistEnabled && whitelistTotal > 0 && whitelistSlotsRemaining > 0
-  const phaseAllowsMint =
+  const whitelistAllowsMint =
     !wallet.account ||
     !whitelistPhaseActive ||
     (userWhitelistRemaining > 0 &&
       (mintQuantityValue <= userWhitelistRemaining || userWhitelistRemaining >= whitelistSlotsRemaining))
+  const walletLimitAllowsMint =
+    !wallet.account || maxMintPerWallet <= 0 || mintQuantityValue <= walletMintLimitRemaining
+  const phaseAllowsMint = whitelistAllowsMint && walletLimitAllowsMint
   const mintActionOpen = mintOpen && phaseAllowsMint
+  const walletLimitText =
+    maxMintPerWallet > 0
+      ? language === 'zh'
+        ? `单钱包最多 ${maxMintPerWallet} 份，当前还能 ${walletMintLimitRemaining} 份`
+        : `Max ${maxMintPerWallet} per wallet, ${walletMintLimitRemaining} left`
+      : language === 'zh'
+        ? '单钱包不限份数'
+        : 'No per-wallet cap'
+  const whitelistStatusText = !project.whitelistEnabled || whitelistTotal <= 0
+    ? language === 'zh'
+      ? '公开 Mint'
+      : 'Public mint'
+    : !wallet.account
+      ? language === 'zh'
+        ? '连接钱包后查看白名单状态'
+        : 'Connect wallet to check whitelist status'
+      : whitelistPhaseActive && userWhitelistRemaining <= 0
+        ? language === 'zh'
+          ? '当前钱包不在白名单，不能 Mint'
+          : 'Current wallet is not whitelisted'
+        : whitelistPhaseActive
+          ? language === 'zh'
+            ? `当前钱包已加白，池内剩余 ${userWhitelistRemaining} 份`
+            : `Wallet whitelisted, ${userWhitelistRemaining} pool slots left`
+          : language === 'zh'
+            ? '白名单阶段已结束，按公开规则 Mint'
+            : 'Whitelist phase ended; public rules apply'
+  const directMintText = project.paymentToken.toLowerCase() === '0x0000000000000000000000000000000000000000'
+    ? language === 'zh'
+      ? `转账即 Mint 请转 Token 合约 ${shortAddress(project.token)}，不要直接转 Vault`
+      : `For transfer-to-mint, send BNB to Token ${shortAddress(project.token)}, not the Vault`
+    : language === 'zh'
+      ? '代币支付需要先授权，请使用 Mint 按钮'
+      : 'Token payment requires approval; use the Mint button'
   const mintCostWei = getMintCostWei(project, mintQuantity)
   const mintNeedsApproval =
     project.paymentToken.toLowerCase() !== '0x0000000000000000000000000000000000000000' &&
@@ -1900,7 +1941,9 @@ function ProjectCard({
     ? text.projects.whitelistPending
     : !mintOpen
       ? text.projects.mintClosed
-      : !phaseAllowsMint
+      : !walletLimitAllowsMint
+        ? language === 'zh' ? '超过单钱包限制' : 'Wallet limit'
+        : !whitelistAllowsMint
         ? language === 'zh' ? '公开未开放' : 'Public locked'
         : mintNeedsApproval ? text.projects.approveMint : text.projects.mint
   const status = project.finalized
@@ -2016,6 +2059,7 @@ function ProjectCard({
               <span>{text.projects.mintQuantity}</span>
               <input
                 inputMode="numeric"
+                max={maxMintPerWallet > 0 ? String(Math.max(1, walletMintLimitRemaining)) : undefined}
                 min="1"
                 type="number"
                 value={mintQuantity}
@@ -2027,8 +2071,16 @@ function ProjectCard({
           {project.whitelistEnabled && wallet.account && (
             <em>{text.projects.whitelistRemaining(project.whitelistRemaining)}</em>
           )}
-          {whitelistPhaseActive && wallet.account && !phaseAllowsMint && (
+          <div className="mint-rule-list">
+            <span>{whitelistStatusText}</span>
+            <span>{walletLimitText}</span>
+            <span>{directMintText}</span>
+          </div>
+          {whitelistPhaseActive && wallet.account && !whitelistAllowsMint && (
             <em>{language === 'zh' ? '白名单阶段，公开会在白名单打满后开放' : 'Whitelist phase is active. Public mint opens after whitelist fills.'}</em>
+          )}
+          {wallet.account && !walletLimitAllowsMint && (
+            <em>{language === 'zh' ? '当前数量超过单钱包上限，请改成剩余额度以内。' : 'Quantity exceeds this wallet limit. Reduce it to the remaining allowance.'}</em>
           )}
           <button className="submit-button" type="submit" disabled={!mintActionOpen || mintPending}>
             <Rocket size={16} />
@@ -2991,6 +3043,20 @@ function LaunchPage({
               <span>{text.launch.mintCount}</span>
               <strong>{Number.isFinite(totalMintCount) ? totalMintCount.toLocaleString() : 0}</strong>
             </div>
+            {whitelistEnabled && Number(form.whitelistMintCount || 0) > 0 && Number(form.publicMintCount || 0) <= 0 && (
+              <div className="launch-warning">
+                {language === 'zh'
+                  ? '当前是纯白名单池：未加白钱包不能 Mint，白名单打满前公开不会开放。'
+                  : 'This is a whitelist-only pool: unlisted wallets cannot mint, and public mint will not open before whitelist fills.'}
+              </div>
+            )}
+            {Number(form.maxMintPerWallet || 0) > 0 && (
+              <div className="launch-warning soft">
+                {language === 'zh'
+                  ? `单钱包最多 ${form.maxMintPerWallet} 份；转账即 Mint 也会受这个限制。`
+                  : `Each wallet can mint up to ${form.maxMintPerWallet}; transfer-to-mint follows the same limit.`}
+              </div>
+            )}
             <label className="switch-row">
               <input
                 checked={whitelistEnabled}
