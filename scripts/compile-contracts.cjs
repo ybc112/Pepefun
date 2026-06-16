@@ -59,7 +59,7 @@ function writeArtifact(sourceName, contractName, compiled, buildInfoPath) {
     `${JSON.stringify(
       {
         _format: 'hh-sol-dbg-1',
-        buildInfo: path.relative(outputDir, buildInfoPath),
+        buildInfo: path.relative(outputDir, buildInfoPath).replace(/\\/g, '/'),
       },
       null,
       2,

@@ -164,7 +164,8 @@ async function verifyWithEtherscanV2({ address, constructorArgs, contract, label
   const dbgPath = path.join(rootDir, "artifacts", sourceName, `${contractName}.dbg.json`);
   const artifact = readJson(path.relative(rootDir, artifactPath));
   const dbg = readJson(path.relative(rootDir, dbgPath));
-  const buildInfoPath = path.resolve(path.dirname(dbgPath), dbg.buildInfo);
+  const buildInfoRef = String(dbg.buildInfo || "").replace(/\\/g, "/");
+  const buildInfoPath = path.resolve(path.dirname(dbgPath), buildInfoRef);
   const buildInfo = JSON.parse(fs.readFileSync(buildInfoPath, "utf8"));
   const compilerVersion = String(buildInfo.solcLongVersion || "").startsWith("v")
     ? buildInfo.solcLongVersion
