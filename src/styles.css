@@ -157,11 +157,10 @@ a {
 .brand-mark img {
   position: relative;
   z-index: 1;
-  width: 34px;
-  height: 34px;
+  width: 42px;
+  height: 42px;
   border-radius: 6px;
   object-fit: contain;
-  mix-blend-mode: multiply;
 }
 
 .brand strong {
